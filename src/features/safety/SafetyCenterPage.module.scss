@@ -1,0 +1,308 @@
+@use '../../styles/variables' as *;
+@use '../../styles/mixins' as *;
+
+.page {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: $spacing-lg;
+}
+
+.pageHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-md;
+
+  :global(.btn > span) {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  @include mobile {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+.title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.description {
+  max-width: 760px;
+  margin: $spacing-sm 0 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.errorBox {
+  padding: $spacing-md;
+  border: 1px solid var(--danger-color);
+  border-radius: $radius-md;
+  background: rgba($error-color, 0.1);
+  color: var(--danger-color);
+  font-size: 13px;
+}
+
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: $spacing-md;
+
+  @include tablet {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @include mobile {
+    grid-template-columns: 1fr;
+  }
+}
+
+.summaryCard {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 8px 10px;
+  min-width: 0;
+  padding: $spacing-md;
+  border: 1px solid var(--border-color);
+  border-radius: $radius-lg;
+  background: var(--bg-primary);
+  box-shadow: $shadow-sm;
+  color: var(--primary-color);
+
+  span {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  strong {
+    grid-column: 1 / -1;
+    color: var(--text-primary);
+    font-size: 28px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+}
+
+.summaryDanger {
+  color: var(--danger-color);
+  border-color: color-mix(in srgb, var(--danger-color) 30%, var(--border-color));
+  background: color-mix(in srgb, var(--danger-color) 5%, var(--bg-primary));
+}
+
+.panel {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: $spacing-md;
+  padding: $spacing-lg;
+  border: 1px solid var(--border-color);
+  border-radius: $radius-lg;
+  background: var(--bg-primary);
+  box-shadow: $shadow-sm;
+
+  @include mobile {
+    padding: $spacing-md;
+  }
+}
+
+.panelHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-md;
+
+  h2 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 17px;
+    font-weight: 700;
+  }
+
+  p {
+    margin: 5px 0 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
+
+  @include mobile {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+.loadingState {
+  display: flex;
+  min-height: 140px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.keyButton {
+  display: block;
+  max-width: 420px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: var(--primary-color);
+  cursor: pointer;
+  font-family: $font-mono;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  &:hover,
+  &:focus-visible {
+    text-decoration: underline;
+  }
+}
+
+.stateCell,
+.modelCell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  small,
+  span {
+    color: var(--text-tertiary);
+    font-size: 11px;
+  }
+}
+
+.disabledBadge,
+.blockedBadge,
+.normalBadge,
+.historyStatus {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: $radius-full;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.disabledBadge,
+.blockedBadge,
+.statusDanger {
+  border-color: color-mix(in srgb, var(--danger-color) 35%, transparent);
+  background: color-mix(in srgb, var(--danger-color) 11%, transparent);
+  color: var(--danger-color);
+}
+
+.normalBadge,
+.statusSuccess {
+  border-color: color-mix(in srgb, $success-color 35%, transparent);
+  background: rgba($success-color, 0.1);
+  color: $success-color;
+}
+
+.actionButtons {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.historyHeading {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+
+  code {
+    display: block;
+    max-width: min(660px, 70vw);
+    overflow: hidden;
+    color: var(--text-secondary);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.filterButtons {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.statusNeutral {
+  border-color: var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.statusMuted {
+  border-color: var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-tertiary);
+}
+
+.timeCell {
+  min-width: 160px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.modelCell {
+  min-width: 130px;
+
+  strong {
+    color: var(--text-primary);
+    font-size: 12px;
+  }
+}
+
+.failureCell {
+  min-width: 280px;
+  max-width: 520px;
+
+  pre {
+    max-height: 150px;
+    margin: 0;
+    padding: 8px 10px;
+    overflow: auto;
+    border: 1px solid var(--border-color);
+    border-radius: $radius-sm;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-family: $font-mono;
+    font-size: 11px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+}
+
+.muted {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.loadMore {
+  display: flex;
+  justify-content: center;
+  padding-top: $spacing-sm;
+}

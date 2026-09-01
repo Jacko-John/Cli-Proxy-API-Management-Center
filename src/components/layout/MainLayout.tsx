@@ -28,6 +28,7 @@ import {
   IconSidebarQuota,
   IconSidebarStore,
   IconSidebarSystem,
+  IconShield,
   IconChevronDown,
 } from '@/components/ui/icons';
 import {
@@ -63,6 +64,7 @@ const sidebarIcons: Record<string, ReactNode> = {
   oauth: <IconSidebarOauth size={18} />,
   quota: <IconSidebarQuota size={18} />,
   monitoring: <IconSidebarMonitoring size={18} />,
+  safety: <IconShield size={18} />,
   credentialCenter: <IconSidebarCredentialCenter size={18} />,
   plugins: <IconSidebarPlugins size={18} />,
   pluginStore: <IconSidebarStore size={18} />,
@@ -342,6 +344,7 @@ export function MainLayout() {
   const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const [pluginResources, setPluginResources] = useState<PluginResourceEntry[]>([]);
+  const [safetyPluginAvailable, setSafetyPluginAvailable] = useState(false);
   const [expandedPluginResourceIDs, setExpandedPluginResourceIDs] = useState<Set<string>>(
     () => new Set()
   );
@@ -491,14 +494,22 @@ export function MainLayout() {
   const loadPluginResources = useCallback(async () => {
     if (connectionStatus !== 'connected' || !supportsPlugin) {
       setPluginResources([]);
+      setSafetyPluginAvailable(false);
       return;
     }
 
     try {
       const plugins = await pluginsApi.list();
       setPluginResources(collectPluginResourceEntries(plugins.plugins));
+      setSafetyPluginAvailable(
+        plugins.plugins.some(
+          (plugin) =>
+            plugin.id === 'usage-statistics' && plugin.registered && plugin.effectiveEnabled
+        )
+      );
     } catch {
       setPluginResources([]);
+      setSafetyPluginAvailable(false);
     }
   }, [connectionStatus, supportsPlugin]);
 
@@ -656,12 +667,22 @@ export function MainLayout() {
           metaKey: 'nav_meta.monitoring_center',
           icon: sidebarIcons.monitoring,
         },
+        ...(safetyPluginAvailable
+          ? [
+              {
+                path: '/safety',
+                labelKey: 'nav.safety_center',
+                metaKey: 'nav_meta.safety_center',
+                icon: sidebarIcons.safety,
+              },
+            ]
+          : []),
         {
           path: '/logs',
           labelKey: 'nav.logs',
           metaKey: 'nav_meta.logs',
           icon: sidebarIcons.logs,
-        }
+        },
       ],
     },
     {

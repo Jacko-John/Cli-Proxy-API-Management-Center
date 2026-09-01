@@ -6,6 +6,7 @@ import { AuthFilesOAuthExcludedEditPage } from '@/pages/AuthFilesOAuthExcludedEd
 import { AuthFilesOAuthModelAliasEditPage } from '@/pages/AuthFilesOAuthModelAliasEditPage';
 import { OAuthPage } from '@/pages/OAuthPage';
 import { QuotaPage } from '@/features/quota/QuotaPage';
+import { SafetyCenterPage } from '@/features/safety/SafetyCenterPage';
 import { MonitoringCenterPage } from '@/pages/MonitoringCenterPage';
 import { CredentialCenterPage } from '@/pages/CredentialCenterPage';
 import { PluginResourcePage } from '@/features/plugins/PluginResourcePage';
@@ -34,12 +35,14 @@ const createMainRoutes = (supportsPlugin: boolean) => [
   { path: '/credential-center', element: <CredentialCenterPage /> },
   ...(supportsPlugin
     ? [
+        { path: '/safety', element: <SafetyCenterPage /> },
         { path: '/plugin-pages/:pluginId/:menuIndex', element: <PluginResourcePage /> },
         { path: '/plugins', element: <PluginsPage /> },
         { path: '/plugin-store', element: <PluginStorePage /> },
         { path: '/plugins/*', element: <Navigate to="/plugins" replace /> },
       ]
     : [
+        { path: '/safety', element: <Navigate to="/" replace /> },
         { path: '/plugin-pages/*', element: <Navigate to="/" replace /> },
         { path: '/plugins/*', element: <Navigate to="/" replace /> },
         { path: '/plugin-store', element: <Navigate to="/" replace /> },

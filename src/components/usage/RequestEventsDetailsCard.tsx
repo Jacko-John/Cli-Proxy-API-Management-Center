@@ -92,9 +92,7 @@ const MAX_CUSTOM_AUTO_REFRESH_SECONDS = 3600;
 const DEFAULT_CUSTOM_AUTO_REFRESH_SECONDS = 60;
 
 type AutoRefreshValue =
-  | keyof typeof AUTO_REFRESH_INTERVALS
-  | typeof AUTO_REFRESH_OFF
-  | typeof AUTO_REFRESH_CUSTOM;
+  keyof typeof AUTO_REFRESH_INTERVALS | typeof AUTO_REFRESH_OFF | typeof AUTO_REFRESH_CUSTOM;
 
 const toNumber = (value: unknown): number => {
   const parsed = Number(value);
@@ -107,7 +105,10 @@ const normalizeCustomAutoRefreshSeconds = (value: unknown): number => {
   if (!Number.isFinite(parsed)) {
     return DEFAULT_CUSTOM_AUTO_REFRESH_SECONDS;
   }
-  return Math.min(Math.max(parsed, MIN_CUSTOM_AUTO_REFRESH_SECONDS), MAX_CUSTOM_AUTO_REFRESH_SECONDS);
+  return Math.min(
+    Math.max(parsed, MIN_CUSTOM_AUTO_REFRESH_SECONDS),
+    MAX_CUSTOM_AUTO_REFRESH_SECONDS
+  );
 };
 
 const normalizeThinkingText = (value: unknown): string => {
@@ -274,7 +275,7 @@ export function RequestEventsDetailsCard({
       { value: '30s', label: '30s' },
       { value: '1m', label: '1m' },
       { value: '5m', label: '5m' },
-      { value: AUTO_REFRESH_CUSTOM, label: t('monitoring_center.auto_refresh_custom') }
+      { value: AUTO_REFRESH_CUSTOM, label: t('monitoring_center.auto_refresh_custom') },
     ],
     [t]
   );
@@ -308,16 +309,21 @@ export function RequestEventsDetailsCard({
     setNextRefreshAtMs(nextRefreshAt);
   }, [autoRefreshDelay, lastRefreshedAt]);
 
-  useInterval(() => {
-    setCountdownNowMs(Date.now());
-  }, autoRefreshDelay ? 1000 : null);
+  useInterval(
+    () => {
+      setCountdownNowMs(Date.now());
+    },
+    autoRefreshDelay ? 1000 : null
+  );
 
   const handleCustomAutoRefreshSecondsChange = useCallback((value: string) => {
     setCustomAutoRefreshSeconds(value.replace(/\D/g, ''));
   }, []);
 
   const handleCustomAutoRefreshSecondsBlur = useCallback(() => {
-    setCustomAutoRefreshSeconds(normalizeCustomAutoRefreshSeconds(customAutoRefreshSeconds).toString());
+    setCustomAutoRefreshSeconds(
+      normalizeCustomAutoRefreshSeconds(customAutoRefreshSeconds).toString()
+    );
   }, [customAutoRefreshSeconds]);
 
   useInterval(() => {
@@ -359,10 +365,7 @@ export function RequestEventsDetailsCard({
         Math.max(toNumber(detail.tokens?.cached_tokens), 0),
         Math.max(toNumber(detail.tokens?.cache_tokens), 0)
       );
-      const cacheCreationTokens = Math.max(
-        toNumber(detail.tokens?.cache_creation_tokens),
-        0
-      );
+      const cacheCreationTokens = Math.max(toNumber(detail.tokens?.cache_creation_tokens), 0);
       const totalTokens = Math.max(
         toNumber(detail.tokens?.total_tokens),
         extractTotalTokens(detail)
@@ -382,7 +385,8 @@ export function RequestEventsDetailsCard({
       });
       const serviceTier = normalizeThinkingText(detail.service_tier);
       const failStatusCode =
-        typeof detail.failure_status_code === 'number' && Number.isFinite(detail.failure_status_code)
+        typeof detail.failure_status_code === 'number' &&
+        Number.isFinite(detail.failure_status_code)
           ? detail.failure_status_code
           : null;
       const failBody =
@@ -650,7 +654,11 @@ export function RequestEventsDetailsCard({
         onConfirm: async () => {
           setDeletingId(backendId);
           try {
-            await deleteUsageRecords([backendId]);
+            const result = await deleteUsageRecords([backendId]);
+            if ((result.missing ?? []).includes(backendId)) {
+              showNotification(t('usage_stats.request_events_delete_protected'), 'warning');
+              return;
+            }
             showNotification(t('usage_stats.request_events_delete_success'), 'success');
           } catch (err: unknown) {
             const message = err instanceof Error ? err.message : '';
@@ -755,7 +763,9 @@ export function RequestEventsDetailsCard({
         {onRefresh && (
           <div className={styles.requestEventsFilterItem}>
             <span className={styles.requestEventsFilterLabelRow}>
-              <span className={styles.requestEventsFilterLabel}>{t('monitoring_center.auto_refresh')}</span>
+              <span className={styles.requestEventsFilterLabel}>
+                {t('monitoring_center.auto_refresh')}
+              </span>
               {autoRefreshCountdown !== null && (
                 <span className={styles.requestEventsCountdown}>
                   {t('monitoring_center.auto_refresh_countdown', { count: autoRefreshCountdown })}
@@ -898,11 +908,15 @@ export function RequestEventsDetailsCard({
                           {t('stats.failure')}
                         </button>
                       ) : (
-                        <span className={styles.requestEventsResultSuccess}>{t('stats.success')}</span>
+                        <span className={styles.requestEventsResultSuccess}>
+                          {t('stats.success')}
+                        </span>
                       )}
                     </td>
                     {hasTimingData && (
-                      <td className={styles.durationCell}>{formatDurationMs(row.firstByteLatencyMs)}</td>
+                      <td className={styles.durationCell}>
+                        {formatDurationMs(row.firstByteLatencyMs)}
+                      </td>
                     )}
                     {hasTimingData && (
                       <td className={styles.durationCell}>{formatDurationMs(row.generationMs)}</td>
@@ -972,7 +986,9 @@ export function RequestEventsDetailsCard({
                 <span className={styles.requestEventsFailureMetaLabel}>
                   {t('usage_stats.request_events_failure_log_model')}
                 </span>
-                <span className={styles.requestEventsFailureMetaValue}>{selectedFailureRow.model}</span>
+                <span className={styles.requestEventsFailureMetaValue}>
+                  {selectedFailureRow.model}
+                </span>
               </div>
             </div>
 
@@ -981,7 +997,9 @@ export function RequestEventsDetailsCard({
                 <span className={styles.requestEventsFailureMetaLabel}>
                   {t('usage_stats.request_events_failure_log_credential')}
                 </span>
-                <span className={styles.requestEventsFailureMetaValue}>{selectedCredentialInfo.name}</span>
+                <span className={styles.requestEventsFailureMetaValue}>
+                  {selectedCredentialInfo.name}
+                </span>
               </div>
             )}
 
