@@ -223,7 +223,56 @@ describe('precomputed usage snapshots', () => {
     });
   });
 
-  test('uses the backend credential path for source-only window queries', () => {
+  test('maps an account email source to its credential file', () => {
+    const rows = buildCredentialUsageRows({
+      usage: {
+        credentials: {
+          'source:user@example.com': {
+            source: 'user@example.com',
+            total_requests: 7,
+            success_count: 7,
+            failure_count: 0,
+            total_tokens: 1500,
+            total_cost: 73,
+          },
+        },
+      },
+      authFiles: [
+        {
+          name: 'codex-account.json',
+          email: 'user@example.com',
+          path: '/root/.cli-proxy-api/codex-account.json',
+          type: 'codex',
+        },
+      ],
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      displayName: 'codex-account.json',
+      requests: 7,
+      tokens: 1500,
+      cost: 73,
+    });
+  });
+
+  test('uses the host credential identity for source-only window queries', () => {
+    expect(
+      getCredentialSourceForFile({
+        name: 'codex-account.json',
+        path: '/root/.cli-proxy-api/codex-account.json',
+        email: 'user@example.com',
+        type: 'codex',
+      })
+    ).toBe('user@example.com');
+    expect(
+      getCredentialSourceForFile({
+        name: 'vertex-account.json',
+        email: 'service@example.com',
+        projectId: 'project-123',
+        type: 'vertex',
+      })
+    ).toBe('project-123');
     expect(
       getCredentialSourceForFile({
         name: 'credential.json',

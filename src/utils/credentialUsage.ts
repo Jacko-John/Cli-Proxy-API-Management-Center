@@ -84,8 +84,15 @@ const credentialSourceBaseName = (source: string): string => {
   return normalized.slice(normalized.lastIndexOf('/') + 1);
 };
 
-export const getCredentialSourceForFile = (file: AuthFileItem): string =>
-  normalizeCredentialSource(file.path) || normalizeCredentialSource(file.name);
+export const getCredentialSourceForFile = (file: AuthFileItem): string => {
+  const email = normalizeCredentialSource(file.email);
+  const projectId = normalizeCredentialSource(file.projectId);
+  const fallback = normalizeCredentialSource(file.path) || normalizeCredentialSource(file.name);
+
+  return normalizeCredentialType(file) === 'vertex'
+    ? projectId || email || fallback
+    : email || fallback;
+};
 
 export const getCredentialRowKeyForFile = (file: AuthFileItem): string => `file:${file.name}`;
 
