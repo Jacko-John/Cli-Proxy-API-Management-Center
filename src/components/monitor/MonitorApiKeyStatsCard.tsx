@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
 import type { UsagePayload } from '@/components/usage';
 import {
+  calculateTps,
   extractFirstByteLatencyMs,
   extractGenerationMs,
   extractTotalTokens,
@@ -38,7 +39,8 @@ interface ApiKeyStatsAccumulator {
   cost: number;
   firstByteLatencyTotalMs: number;
   firstByteLatencySampleCount: number;
-  totalTps: number;
+  tpsOutputTokens: number;
+  tpsGenerationDurationMs: number;
   tpsSampleCount: number;
 }
 
@@ -90,6 +92,13 @@ export function MonitorApiKeyStatsCard({
     return Object.entries(apis).map(([apiKey, apiEntry]) => {
       const apiRecord = isRecord(apiEntry) ? apiEntry : {};
       const models = getModelsRecord(apiEntry);
+      const hasFirstByteLatencyAggregate =
+        apiRecord.first_byte_latency_total_ms !== undefined ||
+        apiRecord.positive_first_byte_latency_sample_count !== undefined ||
+        apiRecord.first_byte_latency_sample_count !== undefined;
+      const hasTpsAggregate =
+        apiRecord.tps_output_tokens !== undefined ||
+        apiRecord.tps_generation_duration_ms !== undefined;
       const totals: ApiKeyStatsAccumulator = {
         apiKey,
         requests: toNonNegativeNumber(apiRecord.total_requests),
@@ -98,8 +107,12 @@ export function MonitorApiKeyStatsCard({
         tokens: toNonNegativeNumber(apiRecord.total_tokens),
         cost: toNonNegativeNumber(apiRecord.total_cost),
         firstByteLatencyTotalMs: toNonNegativeNumber(apiRecord.first_byte_latency_total_ms),
-        firstByteLatencySampleCount: toNonNegativeNumber(apiRecord.first_byte_latency_sample_count),
-        totalTps: toNonNegativeNumber(apiRecord.tps_total),
+        firstByteLatencySampleCount: toNonNegativeNumber(
+          apiRecord.positive_first_byte_latency_sample_count ??
+            apiRecord.first_byte_latency_sample_count
+        ),
+        tpsOutputTokens: toNonNegativeNumber(apiRecord.tps_output_tokens),
+        tpsGenerationDurationMs: toNonNegativeNumber(apiRecord.tps_generation_duration_ms),
         tpsSampleCount: toNonNegativeNumber(apiRecord.tps_sample_count),
       };
 
@@ -122,7 +135,11 @@ export function MonitorApiKeyStatsCard({
             if (!detailRecord) return;
 
             const firstByteLatencyMs = extractFirstByteLatencyMs(detailRecord);
-            if (firstByteLatencyMs !== null && Number.isFinite(firstByteLatencyMs)) {
+            if (
+              !hasFirstByteLatencyAggregate &&
+              firstByteLatencyMs !== null &&
+              firstByteLatencyMs > 0
+            ) {
               totals.firstByteLatencyTotalMs += firstByteLatencyMs;
               totals.firstByteLatencySampleCount += 1;
             }
@@ -130,10 +147,13 @@ export function MonitorApiKeyStatsCard({
             const generationMs = extractGenerationMs(detailRecord);
             const tokens = isRecord(detailRecord.tokens) ? detailRecord.tokens : null;
             const outputTokens = toNonNegativeNumber(tokens?.output_tokens);
-            const tps =
-              generationMs && generationMs > 0 ? outputTokens / (generationMs / 1000) : null;
-            if (tps !== null && Number.isFinite(tps) && tps >= 0) {
-              totals.totalTps += tps;
+            if (
+              !hasTpsAggregate &&
+              detailRecord.failed !== true &&
+              calculateTps(outputTokens, generationMs ?? 0) !== null
+            ) {
+              totals.tpsOutputTokens += outputTokens;
+              totals.tpsGenerationDurationMs += generationMs ?? 0;
               totals.tpsSampleCount += 1;
             }
           });
@@ -154,7 +174,7 @@ export function MonitorApiKeyStatsCard({
           totals.firstByteLatencySampleCount > 0
             ? totals.firstByteLatencyTotalMs / totals.firstByteLatencySampleCount
             : null,
-        averageTps: totals.tpsSampleCount > 0 ? totals.totalTps / totals.tpsSampleCount : null,
+        averageTps: calculateTps(totals.tpsOutputTokens, totals.tpsGenerationDurationMs),
       };
     });
   }, [usage]);

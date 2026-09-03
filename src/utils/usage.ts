@@ -131,7 +131,8 @@ export interface UsageAggregateSnapshot {
   first_byte_latency_total_ms?: number;
   first_byte_latency_sample_count?: number;
   positive_first_byte_latency_sample_count?: number;
-  tps_total?: number;
+  tps_output_tokens?: number;
+  tps_generation_duration_ms?: number;
   tps_sample_count?: number;
 }
 
@@ -539,6 +540,20 @@ export function extractGenerationMs(detail: unknown): number | null {
 
   const ttftMs = toNonNegativeNumber(record?.ttft_ms);
   return ttftMs === null ? latencyMs : Math.max(latencyMs - ttftMs, 0);
+}
+
+export function calculateTps(outputTokens: number, generationMs: number): number | null {
+  if (
+    !Number.isFinite(outputTokens) ||
+    outputTokens <= 0 ||
+    !Number.isFinite(generationMs) ||
+    generationMs <= 0
+  ) {
+    return null;
+  }
+
+  const tps = outputTokens / (generationMs / 1000);
+  return Number.isFinite(tps) ? tps : null;
 }
 
 export function extractFirstByteLatencyMs(detail: unknown): number | null {
@@ -1634,7 +1649,8 @@ export function getModelStats(usageData: unknown): ModelStatsSummary[] {
       cost: number;
       latency: LatencyAccumulator;
       firstByteLatency: LatencyAccumulator;
-      totalTps: number;
+      tpsOutputTokens: number;
+      tpsGenerationDurationMs: number;
       tpsSampleCount: number;
     }
   >();
@@ -1655,37 +1671,58 @@ export function getModelStats(usageData: unknown): ModelStatsSummary[] {
         cost: 0,
         latency: createLatencyAccumulator(),
         firstByteLatency: createLatencyAccumulator(),
-        totalTps: 0,
+        tpsOutputTokens: 0,
+        tpsGenerationDurationMs: 0,
         tpsSampleCount: 0,
       };
       existing.requests += Number(modelData.total_requests) || 0;
       existing.tokens += Number(modelData.total_tokens) || 0;
       existing.cost += Number(modelData.total_cost) || 0;
 
-      const latencyTotal = Number(modelData.latency_total_ms);
-      const latencySamples = Number(modelData.latency_sample_count);
-      if (Number.isFinite(latencyTotal) && Number.isFinite(latencySamples) && latencySamples > 0) {
+      const hasLatencyAggregate =
+        modelData.latency_total_ms !== undefined || modelData.latency_sample_count !== undefined;
+      const hasFirstByteLatencyAggregate =
+        modelData.first_byte_latency_total_ms !== undefined ||
+        modelData.positive_first_byte_latency_sample_count !== undefined ||
+        modelData.first_byte_latency_sample_count !== undefined;
+      const hasTpsAggregate =
+        modelData.tps_output_tokens !== undefined ||
+        modelData.tps_generation_duration_ms !== undefined;
+
+      const latencyTotal = toNonNegativeNumber(modelData.latency_total_ms);
+      const latencySamples = toNonNegativeNumber(modelData.latency_sample_count);
+      if (
+        hasLatencyAggregate &&
+        latencyTotal !== null &&
+        latencySamples !== null &&
+        latencySamples > 0
+      ) {
         existing.latency.totalMs += latencyTotal;
         existing.latency.sampleCount += latencySamples;
       }
-      const firstByteTotal = Number(modelData.first_byte_latency_total_ms);
-      const firstByteSamples = Number(
+
+      const firstByteTotal = toNonNegativeNumber(modelData.first_byte_latency_total_ms);
+      const firstByteSamples = toNonNegativeNumber(
         modelData.positive_first_byte_latency_sample_count ??
           modelData.first_byte_latency_sample_count
       );
       if (
-        Number.isFinite(firstByteTotal) &&
-        Number.isFinite(firstByteSamples) &&
+        hasFirstByteLatencyAggregate &&
+        firstByteTotal !== null &&
+        firstByteSamples !== null &&
         firstByteSamples > 0
       ) {
         existing.firstByteLatency.totalMs += firstByteTotal;
         existing.firstByteLatency.sampleCount += firstByteSamples;
       }
-      const tpsTotal = Number(modelData.tps_total);
-      const tpsSamples = Number(modelData.tps_sample_count);
-      if (Number.isFinite(tpsTotal) && Number.isFinite(tpsSamples) && tpsSamples > 0) {
-        existing.totalTps += tpsTotal;
-        existing.tpsSampleCount += tpsSamples;
+
+      const tpsOutputTokens = toNonNegativeNumber(modelData.tps_output_tokens);
+      const tpsGenerationDurationMs = toNonNegativeNumber(modelData.tps_generation_duration_ms);
+      const tpsSamples = toNonNegativeNumber(modelData.tps_sample_count);
+      if (hasTpsAggregate && tpsOutputTokens !== null && tpsGenerationDurationMs !== null) {
+        existing.tpsOutputTokens += tpsOutputTokens;
+        existing.tpsGenerationDurationMs += tpsGenerationDurationMs;
+        existing.tpsSampleCount += tpsSamples ?? 0;
       }
 
       const details = Array.isArray(modelData.details) ? modelData.details : [];
@@ -1704,10 +1741,7 @@ export function getModelStats(usageData: unknown): ModelStatsSummary[] {
           const firstByteLatencyMs = extractFirstByteLatencyMs(detailRecord);
           const generationMs = extractGenerationMs(detailRecord);
           const tokens = isRecord(detailRecord?.tokens) ? detailRecord.tokens : null;
-          const outputTokensRaw = Number(tokens?.output_tokens);
-          const outputTokens = Number.isFinite(outputTokensRaw) ? Math.max(outputTokensRaw, 0) : 0;
-          const tps =
-            generationMs && generationMs > 0 ? outputTokens / (generationMs / 1000) : null;
+          const outputTokens = toNonNegativeNumber(tokens?.output_tokens) ?? 0;
           if (!hasExplicitCounts) {
             if (detailRecord?.failed === true) {
               existing.failureCount += 1;
@@ -1716,13 +1750,22 @@ export function getModelStats(usageData: unknown): ModelStatsSummary[] {
             }
           }
 
-          addLatencySample(existing.latency, latencyMs);
-          addLatencySample(
-            existing.firstByteLatency,
-            firstByteLatencyMs !== null && firstByteLatencyMs > 0 ? firstByteLatencyMs : null
-          );
-          if (tps !== null && Number.isFinite(tps) && tps >= 0) {
-            existing.totalTps += tps;
+          if (!hasLatencyAggregate) {
+            addLatencySample(existing.latency, latencyMs);
+          }
+          if (!hasFirstByteLatencyAggregate) {
+            addLatencySample(
+              existing.firstByteLatency,
+              firstByteLatencyMs !== null && firstByteLatencyMs > 0 ? firstByteLatencyMs : null
+            );
+          }
+          if (
+            !hasTpsAggregate &&
+            detailRecord?.failed !== true &&
+            calculateTps(outputTokens, generationMs ?? 0) !== null
+          ) {
+            existing.tpsOutputTokens += outputTokens;
+            existing.tpsGenerationDurationMs += generationMs ?? 0;
             existing.tpsSampleCount += 1;
           }
         });
@@ -1744,7 +1787,7 @@ export function getModelStats(usageData: unknown): ModelStatsSummary[] {
         cost: stats.cost,
         averageLatencyMs: latencyStats.averageMs,
         averageFirstByteLatencyMs: firstByteLatencyStats.averageMs,
-        averageTps: stats.tpsSampleCount > 0 ? stats.totalTps / stats.tpsSampleCount : null,
+        averageTps: calculateTps(stats.tpsOutputTokens, stats.tpsGenerationDurationMs),
         latencySampleCount: latencyStats.sampleCount,
         firstByteLatencySampleCount: firstByteLatencyStats.sampleCount,
         tpsSampleCount: stats.tpsSampleCount,

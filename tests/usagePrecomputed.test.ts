@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { buildCredentialUsageRows } from '../src/utils/credentialUsage';
+import { buildCredentialUsageRows, getCredentialSourceForFile } from '../src/utils/credentialUsage';
 import {
   buildDailyCostSeries,
   buildDailySeriesByModel,
@@ -36,7 +36,8 @@ const usage = {
       first_byte_latency_total_ms: 120,
       first_byte_latency_sample_count: 3,
       positive_first_byte_latency_sample_count: 2,
-      tps_total: 30,
+      tps_output_tokens: 30,
+      tps_generation_duration_ms: 2000,
       tps_sample_count: 2,
       models: {
         'model-a': {
@@ -50,15 +51,16 @@ const usage = {
           first_byte_latency_total_ms: 120,
           first_byte_latency_sample_count: 3,
           positive_first_byte_latency_sample_count: 2,
-          tps_total: 30,
+          tps_output_tokens: 30,
+          tps_generation_duration_ms: 2000,
           tps_sample_count: 2,
         },
       },
     },
   },
   credentials: {
-    'source:credential.json': {
-      source: 'credential.json',
+    'source:/root/.cli-proxy-api/credential.json': {
+      source: '/root/.cli-proxy-api/credential.json',
       auth_type: 'codex',
       total_requests: 3,
       success_count: 2,
@@ -116,6 +118,85 @@ describe('precomputed usage snapshots', () => {
     ]);
   });
 
+  test('weights TPS by total output and generation duration', () => {
+    const [stats] = getModelStats({
+      apis: {
+        'client-key': {
+          models: {
+            'model-a': {
+              total_requests: 4,
+              details: [
+                {
+                  failed: false,
+                  latency_ms: 1000,
+                  ttft_ms: 0,
+                  tokens: { output_tokens: 10 },
+                },
+                {
+                  failed: false,
+                  latency_ms: 2100,
+                  ttft_ms: 100,
+                  tokens: { output_tokens: 100 },
+                },
+                {
+                  failed: true,
+                  latency_ms: 2,
+                  ttft_ms: 1,
+                  tokens: { output_tokens: 1000 },
+                },
+                {
+                  failed: false,
+                  latency_ms: 1000,
+                  ttft_ms: 0,
+                  tokens: { output_tokens: 0 },
+                },
+              ],
+            },
+          },
+        },
+      },
+    });
+
+    expect(stats.averageTps).toBeCloseTo(110 / 3, 10);
+    expect(stats.tpsSampleCount).toBe(2);
+  });
+
+  test('does not add request details to precomputed timing aggregates', () => {
+    const [stats] = getModelStats({
+      apis: {
+        'client-key': {
+          models: {
+            'model-a': {
+              total_requests: 1,
+              latency_total_ms: 100,
+              latency_sample_count: 1,
+              first_byte_latency_total_ms: 20,
+              first_byte_latency_sample_count: 1,
+              tps_output_tokens: 10,
+              tps_generation_duration_ms: 1000,
+              tps_sample_count: 1,
+              details: [
+                {
+                  failed: false,
+                  latency_ms: 1000,
+                  ttft_ms: 500,
+                  tokens: { output_tokens: 100 },
+                },
+              ],
+            },
+          },
+        },
+      },
+    });
+
+    expect(stats).toMatchObject({
+      averageLatencyMs: 100,
+      averageFirstByteLatencyMs: 20,
+      averageTps: 10,
+      tpsSampleCount: 1,
+    });
+  });
+
   test('maps the source aggregate to its credential file', () => {
     const rows = buildCredentialUsageRows({
       usage,
@@ -123,6 +204,7 @@ describe('precomputed usage snapshots', () => {
         {
           name: 'credential.json',
           type: 'codex',
+          path: '/root/.cli-proxy-api/credential.json',
           auth_index: 'auth-1',
         },
       ],
@@ -139,6 +221,97 @@ describe('precomputed usage snapshots', () => {
       cost: 1.5,
       successRate: (2 / 3) * 100,
     });
+  });
+
+  test('uses the backend credential path for source-only window queries', () => {
+    expect(
+      getCredentialSourceForFile({
+        name: 'credential.json',
+        path: '/root/.cli-proxy-api/credential.json',
+      })
+    ).toBe('/root/.cli-proxy-api/credential.json');
+    expect(getCredentialSourceForFile({ name: 'credential.json' })).toBe('credential.json');
+  });
+
+  test('normalizes t-prefixed credential sources', () => {
+    const rows = buildCredentialUsageRows({
+      usage: {
+        credentials: {
+          'source:t:/root/.cli-proxy-api/credential.json': {
+            source: 't:/root/.cli-proxy-api/credential.json',
+            total_requests: 1,
+            success_count: 1,
+            failure_count: 0,
+            total_tokens: 20,
+            total_cost: 0.1,
+          },
+        },
+      },
+      authFiles: [
+        {
+          name: 'credential.json',
+          path: '/root/.cli-proxy-api/credential.json',
+          type: 'codex',
+        },
+      ],
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ displayName: 'credential.json', requests: 1, tokens: 20 });
+  });
+
+  test('matches Windows credential paths with either separator', () => {
+    const rows = buildCredentialUsageRows({
+      usage: {
+        credentials: {
+          'source:C:\\credentials\\credential.json': {
+            source: 'C:\\credentials\\credential.json',
+            total_requests: 2,
+            success_count: 2,
+            failure_count: 0,
+            total_tokens: 40,
+            total_cost: 0.2,
+          },
+        },
+      },
+      authFiles: [
+        {
+          name: 'credential.json',
+          path: 'C:/credentials/credential.json',
+          type: 'codex',
+        },
+      ],
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ displayName: 'credential.json', requests: 2, tokens: 40 });
+  });
+
+  test('does not use auth_index when the credential source is missing', () => {
+    const rows = buildCredentialUsageRows({
+      usage: {
+        credentials: {
+          'auth:auth-1': {
+            auth_index: 'auth-1',
+            total_requests: 1,
+            success_count: 1,
+            failure_count: 0,
+            total_tokens: 20,
+            total_cost: 0.1,
+          },
+        },
+      },
+      authFiles: [
+        {
+          name: 'credential.json',
+          path: '/root/.cli-proxy-api/credential.json',
+          auth_index: 'auth-1',
+          type: 'codex',
+        },
+      ],
+    });
+
+    expect(rows).toEqual([]);
   });
 
   test('normalizes on-demand backend events for request detail rendering', () => {

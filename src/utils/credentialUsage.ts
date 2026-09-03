@@ -52,8 +52,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
 interface AuthFileLookup {
-  authIndexToFile: Map<string, AuthFileItem>;
-  authFileNameToFile: Map<string, AuthFileItem>;
+  sourceToFile: Map<string, AuthFileItem>;
 }
 
 interface CredentialMatch {
@@ -74,52 +73,52 @@ export const normalizeCredentialType = (file?: AuthFileItem) => {
   return rawType.trim().toLowerCase() || 'unknown';
 };
 
+const normalizeCredentialSource = (value: unknown): string => {
+  if (typeof value !== 'string') return '';
+  const source = value.trim();
+  return source.startsWith('t:') ? source.slice(2).trim() : source;
+};
+
+const credentialSourceBaseName = (source: string): string => {
+  const normalized = source.replace(/\\/g, '/');
+  return normalized.slice(normalized.lastIndexOf('/') + 1);
+};
+
+export const getCredentialSourceForFile = (file: AuthFileItem): string =>
+  normalizeCredentialSource(file.path) || normalizeCredentialSource(file.name);
+
 export const getCredentialRowKeyForFile = (file: AuthFileItem): string => `file:${file.name}`;
 
 const buildAuthFileLookup = (authFiles: AuthFileItem[]): AuthFileLookup => {
-  const authIndexToFile = new Map<string, AuthFileItem>();
-  const authFileNameToFile = new Map<string, AuthFileItem>();
+  const sourceToFile = new Map<string, AuthFileItem>();
 
   authFiles.forEach((file) => {
-    const authIndex = normalizeAuthIndex(file['auth_index'] ?? file.authIndex);
-    if (authIndex) {
-      authIndexToFile.set(authIndex, file);
-    }
-    if (file.name) {
-      authFileNameToFile.set(file.name, file);
-    }
+    const source = getCredentialSourceForFile(file);
+    if (source) sourceToFile.set(source, file);
+    if (file.name) sourceToFile.set(file.name, file);
   });
 
-  return { authIndexToFile, authFileNameToFile };
+  return { sourceToFile };
 };
 
 const resolveCredentialMatch = (
   detail: UsageDetail,
   lookup: AuthFileLookup
 ): CredentialMatch | null => {
-  const authIndex = normalizeAuthIndex(detail.auth_index);
-  const sourceRaw = String(detail.source ?? '').trim();
-  const sourceText = sourceRaw.startsWith('t:') ? sourceRaw.slice(2) : sourceRaw;
+  const source = normalizeCredentialSource(detail.source);
+  if (!source) return null;
+
   const matchedFile =
-    (authIndex ? lookup.authIndexToFile.get(authIndex) : undefined) ??
-    (sourceRaw ? lookup.authFileNameToFile.get(sourceRaw) : undefined) ??
-    (sourceText ? lookup.authFileNameToFile.get(sourceText) : undefined);
+    lookup.sourceToFile.get(source) ?? lookup.sourceToFile.get(credentialSourceBaseName(source));
+  if (!matchedFile) return null;
 
-  const resolvedAuthIndex =
-    (matchedFile && normalizeAuthIndex(matchedFile['auth_index'] ?? matchedFile.authIndex)) ??
-    authIndex;
-  const authFileName = matchedFile?.name ?? null;
-
-  if (!resolvedAuthIndex && !authFileName) {
-    return null;
-  }
-
+  const authIndex = normalizeAuthIndex(matchedFile['auth_index'] ?? matchedFile.authIndex);
   return {
-    rowKey: authFileName ? `file:${authFileName}` : `auth:${resolvedAuthIndex}`,
-    displayName: authFileName ?? resolvedAuthIndex ?? '-',
+    rowKey: `file:${matchedFile.name}`,
+    displayName: matchedFile.name,
     type: normalizeCredentialType(matchedFile),
-    authIndex: resolvedAuthIndex ?? null,
-    authFileName,
+    authIndex: authIndex ?? null,
+    authFileName: matchedFile.name,
   };
 };
 
@@ -152,7 +151,12 @@ export function buildCredentialUsageRows({
       const match = resolveCredentialMatch(
         {
           timestamp: '',
-          source: typeof raw.source === 'string' ? raw.source : '',
+          source:
+            typeof raw.source === 'string'
+              ? raw.source
+              : key.startsWith('source:')
+                ? key.slice('source:'.length)
+                : '',
           auth_index:
             typeof raw.auth_index === 'string' || typeof raw.auth_index === 'number'
               ? raw.auth_index

@@ -9,8 +9,11 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { IconRefreshCw } from '@/components/ui/icons';
 import { useQuotaStore } from '@/stores';
 import type { AuthFileItem, CodexQuotaState, CodexQuotaWindow } from '@/types';
-import type { CredentialWindowUsageSummary } from '@/utils/credentialUsage';
-import { normalizeAuthIndex, formatCompactNumber, formatUsd } from '@/utils/usage';
+import {
+  getCredentialSourceForFile,
+  type CredentialWindowUsageSummary,
+} from '@/utils/credentialUsage';
+import { formatCompactNumber, formatUsd } from '@/utils/usage';
 import { useCredentialWindowUsage } from './useCredentialWindowUsage';
 import { isCodexFile } from '@/utils/quota';
 import styles from '@/pages/CredentialCenterPage.module.scss';
@@ -201,8 +204,7 @@ export function CodexCredentialQuotaCard({ loading, authFiles }: CodexCredential
         return [
           {
             id: file.name,
-            auth_index: normalizeAuthIndex(file['auth_index'] ?? file.authIndex) ?? undefined,
-            source: file.name,
+            source: getCredentialSourceForFile(file),
             category: 'all' as const,
             start: selection.start,
             end: selection.end,
@@ -564,7 +566,9 @@ export function CodexCredentialQuotaCard({ loading, authFiles }: CodexCredential
             </div>
           )}
           <div className={styles.tableScroll}>
-            <table className={`${styles.table} ${styles.codexQuotaTable}`}>
+            <table
+              className={`${styles.table} ${styles.codexQuotaTable} ${styles.mobileCardTable}`}
+            >
               <thead>
                 <tr>
                   <th>{t('credential_center.quota_credential')}</th>
@@ -584,7 +588,7 @@ export function CodexCredentialQuotaCard({ loading, authFiles }: CodexCredential
               </thead>
               <tbody>
                 {windowLoading ? (
-                  <tr>
+                  <tr className={styles.mobileLoadingRow}>
                     <td colSpan={7}>
                       <div className={styles.quotaWindowLoading}>
                         <LoadingSpinner size={20} />
@@ -603,8 +607,16 @@ export function CodexCredentialQuotaCard({ loading, authFiles }: CodexCredential
 
                     return (
                       <tr key={file.name}>
-                        <td className={styles.credentialCell}>{file.name}</td>
-                        <td className={styles.refreshCell}>
+                        <td
+                          className={styles.credentialCell}
+                          data-label={t('credential_center.quota_credential')}
+                        >
+                          {file.name}
+                        </td>
+                        <td
+                          className={styles.refreshCell}
+                          data-label={t('credential_center.quota_refresh')}
+                        >
                           <span className={styles.refreshCellContent}>
                             <Button
                               variant="secondary"
@@ -619,17 +631,34 @@ export function CodexCredentialQuotaCard({ loading, authFiles }: CodexCredential
                             </Button>
                           </span>
                         </td>
-                        <td className={styles.quotaLimitColumn}>
+                        <td
+                          className={styles.quotaLimitColumn}
+                          data-label={t('credential_center.quota_limit')}
+                        >
                           {renderQuotaLimit(quotaState, row?.selected ?? null)}
                         </td>
-                        <td className={styles.quotaRequestColumn}>{renderRequestCount(summary)}</td>
-                        <td className={styles.quotaTokenColumn}>
+                        <td
+                          className={styles.quotaRequestColumn}
+                          data-label={t('usage_stats.requests_count')}
+                        >
+                          {renderRequestCount(summary)}
+                        </td>
+                        <td
+                          className={styles.quotaTokenColumn}
+                          data-label={t('usage_stats.tokens_count')}
+                        >
                           {summary ? formatCompactNumber(summary.tokens) : '--'}
                         </td>
-                        <td className={styles.quotaSpendColumn}>
+                        <td
+                          className={styles.quotaSpendColumn}
+                          data-label={t('credential_center.quota_spend')}
+                        >
                           {summary ? formatUsd(summary.cost) : '--'}
                         </td>
-                        <td className={styles.quotaEstimateColumn}>
+                        <td
+                          className={styles.quotaEstimateColumn}
+                          data-label={t('credential_center.quota_estimate')}
+                        >
                           {estimate !== null ? formatUsd(estimate) : '--'}
                         </td>
                       </tr>

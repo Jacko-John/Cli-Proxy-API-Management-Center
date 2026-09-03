@@ -126,7 +126,9 @@ export function CredentialStatsCard({ usage, loading, authFiles }: CredentialSta
       ) : rows.length > 0 ? (
         filteredRows.length > 0 ? (
           <div className={styles.tableScroll}>
-            <table className={styles.table}>
+            <table
+              className={`${styles.table} ${styles.credentialStatsTable} ${styles.mobileCardTable}`}
+            >
               <thead>
                 <tr>
                   <th className={styles.sortableHeader} aria-sort={ariaSort('displayName')}>
@@ -196,13 +198,16 @@ export function CredentialStatsCard({ usage, loading, authFiles }: CredentialSta
               <tbody>
                 {sortedRows.map((row) => (
                   <tr key={row.key}>
-                    <td className={styles.credentialCell}>
+                    <td
+                      className={styles.credentialCell}
+                      data-label={t('usage_stats.credential_name')}
+                    >
                       <div>
                         <span>{row.displayName}</span>
                         {row.type && <span className={styles.credentialType}>{row.type}</span>}
                       </div>
                     </td>
-                    <td>
+                    <td data-label={t('usage_stats.requests_count')}>
                       <span className={styles.requestCountCell}>
                         <span>{row.requests.toLocaleString()}</span>
                         <span className={styles.requestBreakdown}>
@@ -217,8 +222,10 @@ export function CredentialStatsCard({ usage, loading, authFiles }: CredentialSta
                         </span>
                       </span>
                     </td>
-                    <td>{formatCompactNumber(row.tokens)}</td>
-                    <td>
+                    <td data-label={t('usage_stats.tokens_count')}>
+                      {formatCompactNumber(row.tokens)}
+                    </td>
+                    <td data-label={t('usage_stats.success_rate')}>
                       <span
                         className={
                           row.successRate >= 95
@@ -231,7 +238,9 @@ export function CredentialStatsCard({ usage, loading, authFiles }: CredentialSta
                         {row.successRate.toFixed(1)}%
                       </span>
                     </td>
-                    <td>{row.cost > 0 ? formatUsd(row.cost) : '--'}</td>
+                    <td data-label={t('usage_stats.total_cost')}>
+                      {row.cost > 0 ? formatUsd(row.cost) : '--'}
+                    </td>
                   </tr>
                 ))}
               </tbody>
