@@ -1,40 +1,37 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ANTIGRAVITY_CONFIG } from '@/features/quota/providers/antigravity/data';
+import {
+  getAntigravityCredentialWindowRange,
+  getAntigravityWindowDurationMs,
+} from '@/fork/antigravityCredentialWindow';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Input } from '@/components/ui/Input';
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { IconRefreshCw } from '@/components/ui/icons';
-import type { UsagePayload } from '@/components/usage';
 import { useQuotaStore } from '@/stores';
-import type { AuthFileItem, AntigravityQuotaState, AntigravityQuotaGroup, AntigravityQuotaBucket } from '@/types';
-import {
-  CREDENTIAL_COST_WINDOW_GRACE_MS,
-  getCredentialRowKeyForFile,
-  type CredentialCostEvent
-} from '@/utils/credentialUsage';
+import type { CredentialWindowQuery } from '@/services/api/usage';
+import type {
+  AuthFileItem,
+  AntigravityQuotaState,
+  AntigravityQuotaGroup,
+  AntigravityQuotaBucket,
+} from '@/types';
 import { isAntigravityFile } from '@/utils/quota';
-import {
-  collectUsageDetails,
-  calculateCost,
-  extractTotalTokens,
-  normalizeAuthIndex,
-  formatCompactNumber,
-  formatUsd,
-  type ModelPrice,
-  type UsageDetail
-} from '@/utils/usage';
+import { normalizeAuthIndex, formatCompactNumber, formatUsd } from '@/utils/usage';
+import { useCredentialWindowUsage } from './useCredentialWindowUsage';
 import styles from '@/pages/CredentialCenterPage.module.scss';
 
 const DEFAULT_REFRESH_INTERVAL_SECONDS = '0.5';
-const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
 const getRefreshIntervalMs = (value: string): number => {
   const seconds = Number.parseFloat(value);
-  if (!Number.isFinite(seconds) || seconds < 0) return Number.parseFloat(DEFAULT_REFRESH_INTERVAL_SECONDS) * 1000;
+  if (!Number.isFinite(seconds) || seconds < 0)
+    return Number.parseFloat(DEFAULT_REFRESH_INTERVAL_SECONDS) * 1000;
   return seconds * 1000;
 };
 
@@ -53,15 +50,19 @@ const emptyProgress = (): BatchProgress => ({
   done: 0,
   success: 0,
   failed: 0,
-  mode: null
+  mode: null,
 });
 
 interface AntigravityCredentialQuotaCardProps {
-  usage: UsagePayload | null;
   loading: boolean;
-  modelPrices: Record<string, ModelPrice>;
   authFiles: AuthFileItem[];
   quotaType: 'claude' | 'gemini';
+}
+
+interface QuotaSelection {
+  group: AntigravityQuotaGroup | null;
+  start: number | null;
+  end: number | null;
 }
 
 interface QuotaRow {
@@ -94,32 +95,6 @@ const selectQuotaGroup = (
   return groups.find((g) => matchesKeyword(g, ['gemini'])) ?? null;
 };
 
-const WINDOW_UNIT_MS: Record<string, number> = {
-  s: 1000,
-  m: 60 * 1000,
-  h: 60 * 60 * 1000,
-  d: 24 * 60 * 60 * 1000,
-  w: 7 * 24 * 60 * 60 * 1000
-};
-
-// Estimate a bucket window's length so the longest one (e.g. weekly over 5h) can be selected.
-// Handles named windows ("weekly"/"daily"/"monthly") and compact forms ("5h", "24h", "7d").
-const getWindowDurationMs = (window: string | undefined): number => {
-  if (!window) return 0;
-  const normalized = window.trim().toLowerCase();
-  if (!normalized) return 0;
-  if (normalized.includes('week')) return 7 * 24 * 60 * 60 * 1000;
-  if (normalized.includes('month')) return 30 * 24 * 60 * 60 * 1000;
-  if (normalized.includes('day') || normalized.includes('dai')) return 24 * 60 * 60 * 1000;
-  const match = normalized.match(/(\d+(?:\.\d+)?)\s*([smhdw])/);
-  if (match) {
-    const value = Number(match[1]);
-    const unitMs = WINDOW_UNIT_MS[match[2]];
-    if (Number.isFinite(value) && unitMs) return value * unitMs;
-  }
-  return 0;
-};
-
 // Pick the bucket covering the longest time window (e.g. weekly rather than 5h). When the
 // window field is missing/unknown, fall back to the latest reset time as a length proxy.
 const selectLongestWindowBucket = (
@@ -130,7 +105,7 @@ const selectLongestWindowBucket = (
   let bestDuration = -1;
   let bestResetMs = Number.NEGATIVE_INFINITY;
   for (const bucket of group.buckets) {
-    const duration = getWindowDurationMs(bucket.window);
+    const duration = getAntigravityWindowDurationMs(bucket) ?? 0;
     const parsedReset = bucket.resetTime ? Date.parse(bucket.resetTime) : Number.NaN;
     const resetMs = Number.isFinite(parsedReset) ? parsedReset : Number.NEGATIVE_INFINITY;
     if (duration > bestDuration || (duration === bestDuration && resetMs > bestResetMs)) {
@@ -154,7 +129,10 @@ const getRemainingPercentLabel = (group: AntigravityQuotaGroup | null): string =
   return remainingPercent === null ? '--' : `${Math.round(remainingPercent)}%`;
 };
 
-const estimateQuotaCost = (cost: number | null | undefined, group: AntigravityQuotaGroup | null): number | null => {
+const estimateQuotaCost = (
+  cost: number | null | undefined,
+  group: AntigravityQuotaGroup | null
+): number | null => {
   if (typeof cost !== 'number' || !Number.isFinite(cost)) return null;
   const remainingPercent = getRemainingPercentValue(group);
   if (remainingPercent === null) return null;
@@ -163,12 +141,17 @@ const estimateQuotaCost = (cost: number | null | undefined, group: AntigravityQu
   return cost / usedRatio;
 };
 
-const getResetTimeMs = (group: AntigravityQuotaGroup | null): number | null => {
-  // Align the usage window with the longest quota window (e.g. weekly rather than 5h).
-  const bucket = selectLongestWindowBucket(group);
-  if (!bucket || !bucket.resetTime) return null;
-  const ms = Date.parse(bucket.resetTime);
-  return Number.isFinite(ms) && ms > 0 ? ms : null;
+const selectAntigravityCredentialWindow = (
+  quotaState: AntigravityQuotaState | undefined,
+  quotaType: 'claude' | 'gemini'
+): QuotaSelection => {
+  const group = selectQuotaGroup(quotaState, quotaType);
+  const range = getAntigravityCredentialWindowRange(selectLongestWindowBucket(group));
+  return {
+    group,
+    start: range?.start ?? null,
+    end: range?.end ?? null,
+  };
 };
 
 const formatResetLabel = (resetTime: string | undefined): string => {
@@ -182,7 +165,9 @@ const formatResetLabel = (resetTime: string | undefined): string => {
   }
 };
 
-const renderRequestCount = (summary: { requests: number; successCount: number; failureCount: number } | null | undefined) => {
+const renderRequestCount = (
+  summary: { requests: number; successCount: number; failureCount: number } | null | undefined
+) => {
   if (!summary) return '--';
 
   return (
@@ -196,129 +181,17 @@ const renderRequestCount = (summary: { requests: number; successCount: number; f
   );
 };
 
-const matchesQuotaType = (modelName: string | undefined, quotaType: 'claude' | 'gemini'): boolean => {
-  if (!modelName) return false;
-  const normalized = modelName.toLowerCase();
-  return normalized.includes(quotaType);
-};
-
-const buildFilteredCostBuckets = (
-  usage: UsagePayload | null,
-  authFiles: AuthFileItem[],
-  modelPrices: Record<string, ModelPrice>,
-  quotaType: 'claude' | 'gemini'
-): Map<string, CredentialCostEvent[]> => {
-  const buckets = new Map<string, CredentialCostEvent[]>();
-
-  authFiles.forEach((file) => {
-    if (file.name) {
-      buckets.set(getCredentialRowKeyForFile(file), []);
-    }
-  });
-
-  if (!usage) return buckets;
-
-  const authIndexToFile = new Map<string, AuthFileItem>();
-  const authFileNameToFile = new Map<string, AuthFileItem>();
-
-  authFiles.forEach((file) => {
-    const authIndex = normalizeAuthIndex(file['auth_index'] ?? file.authIndex);
-    if (authIndex) {
-      authIndexToFile.set(authIndex, file);
-    }
-    if (file.name) {
-      authFileNameToFile.set(file.name, file);
-    }
-  });
-
-  const allDetails = collectUsageDetails(usage);
-
-  allDetails.forEach((detail: UsageDetail) => {
-    // Filter by model name
-    if (!matchesQuotaType(detail.__modelName, quotaType)) {
-      return;
-    }
-
-    const authIndex = normalizeAuthIndex(detail.auth_index);
-    const sourceRaw = String(detail.source ?? '').trim();
-    const sourceText = sourceRaw.startsWith('t:') ? sourceRaw.slice(2) : sourceRaw;
-    const matchedFile =
-      (authIndex ? authIndexToFile.get(authIndex) : undefined) ??
-      (sourceRaw ? authFileNameToFile.get(sourceRaw) : undefined) ??
-      (sourceText ? authFileNameToFile.get(sourceText) : undefined);
-
-    if (!matchedFile?.name) return;
-
-    const timestampMs = detail.__timestampMs ?? Date.parse(detail.timestamp);
-    if (!Number.isFinite(timestampMs) || timestampMs <= 0) return;
-
-    const latencyMs =
-      typeof detail.latency_ms === 'number' && Number.isFinite(detail.latency_ms) && detail.latency_ms > 0
-        ? detail.latency_ms
-        : 0;
-    const completedAtMs = timestampMs + latencyMs;
-
-    const rowKey = getCredentialRowKeyForFile(matchedFile);
-    const events = buckets.get(rowKey) ?? [];
-    events.push({
-      completedAtMs,
-      cost: calculateCost(detail, modelPrices),
-      tokens: extractTotalTokens(detail),
-      failed: detail.failed === true
-    });
-    buckets.set(rowKey, events);
-  });
-
-  return buckets;
-};
-
-const sumUsageInWindow = (
-  events: CredentialCostEvent[],
-  startMs: number,
-  endMs: number,
-  graceMs: number = 0
-): { requests: number; successCount: number; failureCount: number; tokens: number; cost: number } => {
-  const normalizedGraceMs = Number.isFinite(graceMs) && graceMs > 0 ? graceMs : 0;
-  const effectiveStartMs = startMs - normalizedGraceMs;
-  const effectiveEndMs = endMs + normalizedGraceMs;
-
-  return events.reduce(
-    (summary, item) => {
-      if (item.completedAtMs < effectiveStartMs || item.completedAtMs > effectiveEndMs) {
-        return summary;
-      }
-
-      summary.requests += 1;
-      if (item.failed) {
-        summary.failureCount += 1;
-      } else {
-        summary.successCount += 1;
-      }
-      summary.tokens += item.tokens;
-      summary.cost += item.cost;
-      return summary;
-    },
-    {
-      requests: 0,
-      successCount: 0,
-      failureCount: 0,
-      tokens: 0,
-      cost: 0
-    }
-  );
-};
-
 export function AntigravityCredentialQuotaCard({
-  usage,
   loading,
-  modelPrices,
   authFiles,
-  quotaType
+  quotaType,
 }: AntigravityCredentialQuotaCardProps) {
   const { t } = useTranslation();
   const [refreshingKeys, setRefreshingKeys] = useState<Record<string, boolean>>({});
   const [searchTerm, setSearchTerm] = useState('');
-  const [refreshIntervalSeconds, setRefreshIntervalSeconds] = useState(DEFAULT_REFRESH_INTERVAL_SECONDS);
+  const [refreshIntervalSeconds, setRefreshIntervalSeconds] = useState(
+    DEFAULT_REFRESH_INTERVAL_SECONDS
+  );
   const [progress, setProgress] = useState<BatchProgress>(emptyProgress);
   const [batchMessage, setBatchMessage] = useState<string | null>(null);
   const antigravityQuota = useQuotaStore((state) => state.antigravityQuota);
@@ -337,35 +210,46 @@ export function AntigravityCredentialQuotaCard({
     [antigravityFiles, normalizedSearchTerm]
   );
 
-  const costBuckets = useMemo(
-    () => buildFilteredCostBuckets(usage, antigravityFiles, modelPrices, quotaType),
-    [antigravityFiles, modelPrices, usage, quotaType]
+  const quotaSelections = useMemo(() => {
+    const result = new Map<string, QuotaSelection>();
+    antigravityFiles.forEach((file) => {
+      const quotaState = antigravityQuota[file.name] as AntigravityQuotaState | undefined;
+      result.set(file.name, selectAntigravityCredentialWindow(quotaState, quotaType));
+    });
+    return result;
+  }, [antigravityFiles, antigravityQuota, quotaType]);
+
+  const windowQueries = useMemo<CredentialWindowQuery[]>(
+    () =>
+      antigravityFiles.flatMap((file) => {
+        const selection = quotaSelections.get(file.name);
+        if (!selection || selection.start === null || selection.end === null) return [];
+        return [
+          {
+            id: file.name,
+            auth_index: normalizeAuthIndex(file['auth_index'] ?? file.authIndex) ?? undefined,
+            source: file.name,
+            category: quotaType === 'claude' ? 'claude_gpt' : 'gemini',
+            start: selection.start,
+            end: selection.end,
+          },
+        ];
+      }),
+    [antigravityFiles, quotaSelections, quotaType]
   );
+  const { summaries: windowSummaries, loading: windowLoading } =
+    useCredentialWindowUsage(windowQueries);
 
   const quotaRows = useMemo(() => {
     const result = new Map<string, QuotaRow>();
-
     antigravityFiles.forEach((file) => {
-      const quotaState = antigravityQuota[file.name] as AntigravityQuotaState | undefined;
-      const group = selectQuotaGroup(quotaState, quotaType);
-      const resetTimeMs = getResetTimeMs(group);
-
-      let summary: { requests: number; successCount: number; failureCount: number; tokens: number; cost: number } | null = null;
-      if (resetTimeMs !== null) {
-        const events = costBuckets.get(getCredentialRowKeyForFile(file)) ?? [];
-        summary = sumUsageInWindow(
-          events,
-          resetTimeMs - SEVEN_DAYS_MS,
-          resetTimeMs,
-          CREDENTIAL_COST_WINDOW_GRACE_MS
-        );
-      }
-
-      result.set(file.name, { group, summary });
+      result.set(file.name, {
+        group: quotaSelections.get(file.name)?.group ?? null,
+        summary: windowSummaries[file.name] ?? null,
+      });
     });
-
     return result;
-  }, [antigravityFiles, antigravityQuota, costBuckets, quotaType]);
+  }, [antigravityFiles, quotaSelections, windowSummaries]);
 
   const handleRefreshQuota = useCallback(
     async (file: AuthFileItem) => {
@@ -375,14 +259,14 @@ export function AntigravityCredentialQuotaCard({
       setRefreshingKeys((prev) => ({ ...prev, [quotaKey]: true }));
       setAntigravityQuota((prev) => ({
         ...prev,
-        [quotaKey]: ANTIGRAVITY_CONFIG.buildLoadingState()
+        [quotaKey]: ANTIGRAVITY_CONFIG.buildLoadingState(),
       }));
 
       try {
         const data = await ANTIGRAVITY_CONFIG.fetchQuota(file, t);
         setAntigravityQuota((prev) => ({
           ...prev,
-          [quotaKey]: ANTIGRAVITY_CONFIG.buildSuccessState(data)
+          [quotaKey]: ANTIGRAVITY_CONFIG.buildSuccessState(data),
         }));
         return 'success' as const;
       } catch (err: unknown) {
@@ -396,7 +280,7 @@ export function AntigravityCredentialQuotaCard({
           [quotaKey]: ANTIGRAVITY_CONFIG.buildErrorState(
             message,
             Number.isFinite(status) ? status : undefined
-          )
+          ),
         }));
         return 'failed' as const;
       } finally {
@@ -406,18 +290,22 @@ export function AntigravityCredentialQuotaCard({
     [setAntigravityQuota, t]
   );
 
-  const hasFetchedQuota = useCallback((file: AuthFileItem): boolean => {
-    const quotaState = antigravityQuota[file.name] as AntigravityQuotaState | undefined;
-    return quotaState?.status === 'success' && (quotaState.groups?.length ?? 0) > 0;
-  }, [antigravityQuota]);
+  const hasFetchedQuota = useCallback(
+    (file: AuthFileItem): boolean => {
+      const quotaState = antigravityQuota[file.name] as AntigravityQuotaState | undefined;
+      return quotaState?.status === 'success' && (quotaState.groups?.length ?? 0) > 0;
+    },
+    [antigravityQuota]
+  );
 
   const handleBatchRefresh = useCallback(
     async (mode: 'all' | 'missing') => {
       if (progress.running) return;
 
-      const targetFiles = mode === 'all'
-        ? antigravityFiles
-        : antigravityFiles.filter((file) => !hasFetchedQuota(file));
+      const targetFiles =
+        mode === 'all'
+          ? antigravityFiles
+          : antigravityFiles.filter((file) => !hasFetchedQuota(file));
       const intervalMs = getRefreshIntervalMs(refreshIntervalSeconds);
       const total = targetFiles.length;
 
@@ -428,7 +316,7 @@ export function AntigravityCredentialQuotaCard({
         done: 0,
         success: 0,
         failed: 0,
-        mode
+        mode,
       });
 
       if (total === 0) {
@@ -444,7 +332,7 @@ export function AntigravityCredentialQuotaCard({
           ...current,
           done: current.done + 1,
           success: current.success + (result === 'success' ? 1 : 0),
-          failed: current.failed + (result === 'failed' ? 1 : 0)
+          failed: current.failed + (result === 'failed' ? 1 : 0),
         }));
         if (index < targetFiles.length - 1 && intervalMs > 0) {
           await sleep(intervalMs);
@@ -454,7 +342,14 @@ export function AntigravityCredentialQuotaCard({
       setProgress((current) => ({ ...current, running: false }));
       setBatchMessage(t('credential_center.codex_pool_batch_finished'));
     },
-    [antigravityFiles, hasFetchedQuota, handleRefreshQuota, progress.running, refreshIntervalSeconds, t]
+    [
+      antigravityFiles,
+      hasFetchedQuota,
+      handleRefreshQuota,
+      progress.running,
+      refreshIntervalSeconds,
+      t,
+    ]
   );
 
   const missingQuotaCount = useMemo(
@@ -462,9 +357,13 @@ export function AntigravityCredentialQuotaCard({
     [antigravityFiles, hasFetchedQuota]
   );
 
-  const progressPercent = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
+  const progressPercent =
+    progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
 
-  const renderQuotaLimit = (quotaState: AntigravityQuotaState | undefined, group: AntigravityQuotaGroup | null) => {
+  const renderQuotaLimit = (
+    quotaState: AntigravityQuotaState | undefined,
+    group: AntigravityQuotaGroup | null
+  ) => {
     if (quotaState?.status === 'loading') {
       return <span className={styles.quotaStatus}>{t('credential_center.quota_loading')}</span>;
     }
@@ -489,20 +388,23 @@ export function AntigravityCredentialQuotaCard({
     );
   };
 
-  const titleKey = quotaType === 'claude'
-    ? 'credential_center.antigravity_claude_quota_title'
-    : 'credential_center.antigravity_gemini_quota_title';
-  const emptyTitleKey = quotaType === 'claude'
-    ? 'credential_center.antigravity_claude_quota_empty_title'
-    : 'credential_center.antigravity_gemini_quota_empty_title';
-  const emptyDescKey = quotaType === 'claude'
-    ? 'credential_center.antigravity_claude_quota_empty_desc'
-    : 'credential_center.antigravity_gemini_quota_empty_desc';
+  const titleKey =
+    quotaType === 'claude'
+      ? 'credential_center.antigravity_claude_quota_title'
+      : 'credential_center.antigravity_gemini_quota_title';
+  const emptyTitleKey =
+    quotaType === 'claude'
+      ? 'credential_center.antigravity_claude_quota_empty_title'
+      : 'credential_center.antigravity_gemini_quota_empty_title';
+  const emptyDescKey =
+    quotaType === 'claude'
+      ? 'credential_center.antigravity_claude_quota_empty_desc'
+      : 'credential_center.antigravity_gemini_quota_empty_desc';
 
   return (
     <Card
       title={t(titleKey)}
-      className={styles.fixedCard}
+      className={`${styles.fixedCard} ${styles.quotaCard}`}
       extra={
         <div className={styles.cardHeaderControls}>
           <Button
@@ -511,9 +413,16 @@ export function AntigravityCredentialQuotaCard({
             onClick={() => void handleBatchRefresh('all')}
             disabled={progress.running || antigravityFiles.length === 0}
           >
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                whiteSpace: 'nowrap',
+              }}
+            >
               <IconRefreshCw size={14} />
-              全部
+              {t('credential_center.codex_pool_refresh_all')}
             </span>
           </Button>
           <Button
@@ -522,9 +431,16 @@ export function AntigravityCredentialQuotaCard({
             onClick={() => void handleBatchRefresh('missing')}
             disabled={progress.running || missingQuotaCount === 0}
           >
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                whiteSpace: 'nowrap',
+              }}
+            >
               <IconRefreshCw size={14} />
-              补漏
+              {t('credential_center.codex_pool_refresh_missing')}
             </span>
           </Button>
           <label className={styles.codexPoolIntervalControl}>
@@ -555,10 +471,7 @@ export function AntigravityCredentialQuotaCard({
       {loading && antigravityFiles.length === 0 ? (
         <div className={styles.hint}>{t('common.loading')}</div>
       ) : antigravityFiles.length === 0 ? (
-        <EmptyState
-          title={t(emptyTitleKey)}
-          description={t(emptyDescKey)}
-        />
+        <EmptyState title={t(emptyTitleKey)} description={t(emptyDescKey)} />
       ) : filteredAntigravityFiles.length === 0 ? (
         <EmptyState
           title={t('monitoring_center.credential_no_result_title')}
@@ -579,11 +492,18 @@ export function AntigravityCredentialQuotaCard({
                 </span>
               </div>
               <div className={styles.codexPoolProgressTrack}>
-                <div className={styles.codexPoolProgressFill} style={{ width: `${progressPercent}%` }} />
+                <div
+                  className={styles.codexPoolProgressFill}
+                  style={{ width: `${progressPercent}%` }}
+                />
               </div>
               <div className={styles.codexPoolProgressMeta}>
-                <span>{t('credential_center.codex_pool_progress_success', { count: progress.success })}</span>
-                <span>{t('credential_center.codex_pool_progress_failed', { count: progress.failed })}</span>
+                <span>
+                  {t('credential_center.codex_pool_progress_success', { count: progress.success })}
+                </span>
+                <span>
+                  {t('credential_center.codex_pool_progress_failed', { count: progress.failed })}
+                </span>
                 {batchMessage && <span>{batchMessage}</span>}
               </div>
             </div>
@@ -594,56 +514,74 @@ export function AntigravityCredentialQuotaCard({
                 <tr>
                   <th>{t('credential_center.quota_credential')}</th>
                   <th className={styles.refreshColumn}>
-                    <span className={styles.visuallyHidden}>{t('credential_center.quota_refresh')}</span>
+                    <span className={styles.visuallyHidden}>
+                      {t('credential_center.quota_refresh')}
+                    </span>
                   </th>
                   <th className={styles.quotaLimitColumn}>{t('credential_center.quota_limit')}</th>
                   <th className={styles.quotaRequestColumn}>{t('usage_stats.requests_count')}</th>
                   <th className={styles.quotaTokenColumn}>{t('usage_stats.tokens_count')}</th>
                   <th className={styles.quotaSpendColumn}>{t('credential_center.quota_spend')}</th>
-                  <th className={styles.quotaEstimateColumn}>{t('credential_center.quota_estimate')}</th>
+                  <th className={styles.quotaEstimateColumn}>
+                    {t('credential_center.quota_estimate')}
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {filteredAntigravityFiles.map((file) => {
-                  const quotaState = antigravityQuota[file.name] as AntigravityQuotaState | undefined;
-                  const row = quotaRows.get(file.name);
-                  const group = row?.group ?? null;
-                  const summary = row?.summary ?? null;
-                  const estimate = estimateQuotaCost(summary?.cost, group);
-                  const isRefreshing = refreshingKeys[file.name] === true;
+                {windowLoading ? (
+                  <tr>
+                    <td colSpan={7}>
+                      <div className={styles.quotaWindowLoading}>
+                        <LoadingSpinner size={20} />
+                        <span>{t('common.loading')}</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredAntigravityFiles.map((file) => {
+                    const quotaState = antigravityQuota[file.name] as
+                      AntigravityQuotaState | undefined;
+                    const row = quotaRows.get(file.name);
+                    const group = row?.group ?? null;
+                    const summary = row?.summary ?? null;
+                    const estimate = estimateQuotaCost(summary?.cost, group);
+                    const isRefreshing = refreshingKeys[file.name] === true;
 
-                  return (
-                    <tr key={file.name}>
-                      <td className={styles.credentialCell}>{file.name}</td>
-                      <td className={styles.refreshCell}>
-                        <span className={styles.refreshCellContent}>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            className={styles.iconOnlyButton}
-                            loading={isRefreshing}
-                            onClick={() => void handleRefreshQuota(file)}
-                            aria-label={t('credential_center.quota_refresh')}
-                            title={t('credential_center.quota_refresh')}
-                          >
-                            {!isRefreshing && <IconRefreshCw size={14} />}
-                          </Button>
-                        </span>
-                      </td>
-                      <td className={styles.quotaLimitColumn}>{renderQuotaLimit(quotaState, group)}</td>
-                      <td className={styles.quotaRequestColumn}>{renderRequestCount(summary)}</td>
-                      <td className={styles.quotaTokenColumn}>
-                        {summary ? formatCompactNumber(summary.tokens) : '--'}
-                      </td>
-                      <td className={styles.quotaSpendColumn}>
-                        {summary ? formatUsd(summary.cost) : '--'}
-                      </td>
-                      <td className={styles.quotaEstimateColumn}>
-                        {estimate !== null ? formatUsd(estimate) : '--'}
-                      </td>
-                    </tr>
-                  );
-                })}
+                    return (
+                      <tr key={file.name}>
+                        <td className={styles.credentialCell}>{file.name}</td>
+                        <td className={styles.refreshCell}>
+                          <span className={styles.refreshCellContent}>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className={styles.iconOnlyButton}
+                              loading={isRefreshing}
+                              onClick={() => void handleRefreshQuota(file)}
+                              aria-label={t('credential_center.quota_refresh')}
+                              title={t('credential_center.quota_refresh')}
+                            >
+                              {!isRefreshing && <IconRefreshCw size={14} />}
+                            </Button>
+                          </span>
+                        </td>
+                        <td className={styles.quotaLimitColumn}>
+                          {renderQuotaLimit(quotaState, group)}
+                        </td>
+                        <td className={styles.quotaRequestColumn}>{renderRequestCount(summary)}</td>
+                        <td className={styles.quotaTokenColumn}>
+                          {summary ? formatCompactNumber(summary.tokens) : '--'}
+                        </td>
+                        <td className={styles.quotaSpendColumn}>
+                          {summary ? formatUsd(summary.cost) : '--'}
+                        </td>
+                        <td className={styles.quotaEstimateColumn}>
+                          {estimate !== null ? formatUsd(estimate) : '--'}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>

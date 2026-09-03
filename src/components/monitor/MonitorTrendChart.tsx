@@ -4,7 +4,7 @@ import { Chart } from 'react-chartjs-2';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { buildUsageTotalsTrend, formatUsdFixedOne, type ModelPrice } from '@/utils/usage';
+import { buildUsageTotalsTrend, formatUsdFixedOne } from '@/utils/usage';
 import { getHourChartMinWidth } from '@/utils/usage/chartConfig';
 import type { UsagePayload } from '@/components/usage';
 import styles from '@/pages/MonitoringCenterPage.module.scss';
@@ -15,14 +15,13 @@ export interface MonitorTrendChartProps {
   isDark: boolean;
   isMobile: boolean;
   hourWindowHours?: number;
-  modelPrices: Record<string, ModelPrice>;
 }
 
 const TOKEN_AXIS_UNITS = [
   { value: 1_000_000_000_000, suffix: 'T' },
   { value: 1_000_000_000, suffix: 'B' },
   { value: 1_000_000, suffix: 'M' },
-  { value: 1_000, suffix: 'K' }
+  { value: 1_000, suffix: 'K' },
 ];
 
 const getTokenAxisUnit = (tickValues: number[]) => {
@@ -32,12 +31,15 @@ const getTokenAxisUnit = (tickValues: number[]) => {
     .filter((value) => value > 0)
     .sort((a, b) => a - b);
 
-  const smallestStep = positive.reduce<number | null>((step, value, index) => {
-    if (index === 0) return step;
-    const diff = value - positive[index - 1];
-    if (diff <= 0) return step;
-    return step === null ? diff : Math.min(step, diff);
-  }, null) ?? positive[0] ?? 0;
+  const smallestStep =
+    positive.reduce<number | null>((step, value, index) => {
+      if (index === 0) return step;
+      const diff = value - positive[index - 1];
+      if (diff <= 0) return step;
+      return step === null ? diff : Math.min(step, diff);
+    }, null) ??
+    positive[0] ??
+    0;
 
   return TOKEN_AXIS_UNITS.find((unit) => smallestStep >= unit.value) ?? null;
 };
@@ -61,7 +63,7 @@ const formatTokenAxisValue = (value: number, ticks: { value: number | string }[]
   const fractionDigits = Number.isInteger(scaled) ? 0 : absScaled >= 10 ? 1 : 2;
   return `${scaled.toLocaleString(undefined, {
     minimumFractionDigits: 0,
-    maximumFractionDigits: fractionDigits
+    maximumFractionDigits: fractionDigits,
   })}${unit.suffix}`;
 };
 
@@ -73,14 +75,13 @@ export function MonitorTrendChart({
   isDark,
   isMobile,
   hourWindowHours,
-  modelPrices
 }: MonitorTrendChartProps) {
   const { t } = useTranslation();
   const [period, setPeriod] = useState<'hour' | 'day'>('day');
 
   const trend = useMemo(
-    () => buildUsageTotalsTrend(usage, modelPrices, period, { hourWindowHours }),
-    [usage, modelPrices, period, hourWindowHours]
+    () => buildUsageTotalsTrend(usage, period, { hourWindowHours }),
+    [usage, period, hourWindowHours]
   );
 
   const chartData = useMemo<ChartData<'bar' | 'line'>>(
@@ -97,7 +98,7 @@ export function MonitorTrendChart({
           borderWidth: 1,
           borderRadius: 6,
           maxBarThickness: period === 'hour' ? 18 : 28,
-          order: 2
+          order: 2,
         },
         {
           type: 'line' as const,
@@ -113,9 +114,9 @@ export function MonitorTrendChart({
           tension: 0.35,
           fill: false,
           borderWidth: isMobile ? 1.5 : 2,
-          order: 1
-        }
-      ]
+          order: 1,
+        },
+      ],
     }),
     [isMobile, period, t, trend.costSeries, trend.labels, trend.tokenSeries]
   );
@@ -136,7 +137,7 @@ export function MonitorTrendChart({
       maintainAspectRatio: false,
       interaction: {
         mode: 'index',
-        intersect: false
+        intersect: false,
       },
       plugins: {
         legend: { display: false },
@@ -157,18 +158,18 @@ export function MonitorTrendChart({
                 return `${label}: ${formatCostValue(value)}`;
               }
               return `${label}: ${value.toLocaleString()}`;
-            }
-          }
-        }
+            },
+          },
+        },
       },
       scales: {
         x: {
           grid: {
             color: gridColor,
-            drawTicks: false
+            drawTicks: false,
           },
           border: {
-            color: axisBorderColor
+            color: axisBorderColor,
           },
           ticks: {
             color: tickColor,
@@ -202,40 +203,40 @@ export function MonitorTrendChart({
                 }
               }
               return raw;
-            }
-          }
+            },
+          },
         },
         yTokens: {
           beginAtZero: true,
           position: 'left',
           grid: {
-            color: gridColor
+            color: gridColor,
           },
           border: {
-            color: axisBorderColor
+            color: axisBorderColor,
           },
           ticks: {
             color: tickColor,
             font: { size: tickFontSize },
-            callback: (value, _index, ticks) => formatTokenAxisValue(Number(value), ticks)
-          }
+            callback: (value, _index, ticks) => formatTokenAxisValue(Number(value), ticks),
+          },
         },
         yCost: {
           beginAtZero: true,
           position: 'right',
           grid: {
-            drawOnChartArea: false
+            drawOnChartArea: false,
           },
           border: {
-            color: axisBorderColor
+            color: axisBorderColor,
           },
           ticks: {
             color: tickColor,
             font: { size: tickFontSize },
-            callback: (value) => formatCostValue(Number(value))
-          }
-        }
-      }
+            callback: (value) => formatCostValue(Number(value)),
+          },
+        },
+      },
     };
   }, [isDark, isMobile, period, trend.labels]);
 
@@ -268,8 +269,15 @@ export function MonitorTrendChart({
         <div className={styles.chartWrapper}>
           <div className={styles.chartLegend} aria-label="Chart legend">
             {chartData.datasets.map((dataset, index) => (
-              <div key={`${dataset.label}-${index}`} className={styles.legendItem} title={dataset.label}>
-                <span className={styles.legendDot} style={{ backgroundColor: String(dataset.borderColor) }} />
+              <div
+                key={`${dataset.label}-${index}`}
+                className={styles.legendItem}
+                title={dataset.label}
+              >
+                <span
+                  className={styles.legendDot}
+                  style={{ backgroundColor: String(dataset.borderColor) }}
+                />
                 <span className={styles.legendLabel}>{dataset.label}</span>
               </div>
             ))}

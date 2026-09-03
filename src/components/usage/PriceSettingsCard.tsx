@@ -16,17 +16,18 @@ import {
   formatMappingListForTextarea,
   type SyncSettings,
 } from '@/utils/priceSync';
-import {
-  loadTierMultipliers,
-  saveTierMultipliers,
-  type TierMultiplierRule,
-} from '@/utils/tierMultiplier';
+import { sanitizeTierMultipliers, type TierMultiplierRule } from '@/utils/tierMultiplier';
 import styles from '@/pages/UsagePage.module.scss';
 
 export interface PriceSettingsCardProps {
   modelNames: string[];
   modelPrices: Record<string, ModelPrice>;
-  onPricesChange: (prices: Record<string, ModelPrice>) => void;
+  tierMultipliers: TierMultiplierRule[];
+  saving: boolean;
+  onPricingChange: (
+    prices: Record<string, ModelPrice>,
+    tierMultipliers: TierMultiplierRule[]
+  ) => Promise<void>;
 }
 
 type SyncStatusType = 'info' | 'success' | 'error';
@@ -82,7 +83,9 @@ const contextTiersToDrafts = (tiers?: ContextTierPrice[]): ContextTierDraft[] =>
 export function PriceSettingsCard({
   modelNames,
   modelPrices,
-  onPricesChange
+  tierMultipliers,
+  saving,
+  onPricingChange,
 }: PriceSettingsCardProps) {
   const { t } = useTranslation();
 
@@ -113,9 +116,10 @@ export function PriceSettingsCard({
   // Tier multiplier modal state
   const [tierOpen, setTierOpen] = useState(false);
   const [tierRows, setTierRows] = useState<TierMultiplierDraft[]>([]);
+  const pricingPending = saving || syncPending;
 
-  const handleSavePrice = () => {
-    if (!selectedModel) return;
+  const handleSavePrice = async () => {
+    if (!selectedModel || pricingPending) return;
     const existingTiers = modelPrices[selectedModel]?.contextTiers;
     const price: ModelPrice = {
       input: parseNonNegative(inputPrice),
@@ -125,18 +129,27 @@ export function PriceSettingsCard({
       // 新增/更新基础价时保留该模型已有的上下文阶梯（阶梯在编辑弹窗中维护）。
       ...(existingTiers && existingTiers.length ? { contextTiers: existingTiers } : {}),
     };
-    onPricesChange({ ...modelPrices, [selectedModel]: price });
-    setSelectedModel('');
-    setInputPrice('');
-    setOutputPrice('');
-    setCacheCreatePrice('');
-    setCacheReadPrice('');
+    try {
+      await onPricingChange({ ...modelPrices, [selectedModel]: price }, tierMultipliers);
+      setSelectedModel('');
+      setInputPrice('');
+      setOutputPrice('');
+      setCacheCreatePrice('');
+      setCacheReadPrice('');
+    } catch {
+      // 页面统一显示保存错误。
+    }
   };
 
-  const handleDeletePrice = (model: string) => {
+  const handleDeletePrice = async (model: string) => {
+    if (pricingPending) return;
     const newPrices = { ...modelPrices };
     delete newPrices[model];
-    onPricesChange(newPrices);
+    try {
+      await onPricingChange(newPrices, tierMultipliers);
+    } catch {
+      // 页面统一显示保存错误。
+    }
   };
 
   const handleOpenEdit = (model: string) => {
@@ -149,8 +162,8 @@ export function PriceSettingsCard({
     setEditTiers(contextTiersToDrafts(price?.contextTiers));
   };
 
-  const handleSaveEdit = () => {
-    if (!editModel) return;
+  const handleSaveEdit = async () => {
+    if (!editModel || pricingPending) return;
     const tiers = draftsToContextTiers(editTiers);
     const price: ModelPrice = {
       input: parseNonNegative(editInput),
@@ -159,8 +172,12 @@ export function PriceSettingsCard({
       cacheRead: parseNonNegative(editCacheRead),
       ...(tiers.length ? { contextTiers: tiers } : {}),
     };
-    onPricesChange({ ...modelPrices, [editModel]: price });
-    setEditModel(null);
+    try {
+      await onPricingChange({ ...modelPrices, [editModel]: price }, tierMultipliers);
+      setEditModel(null);
+    } catch {
+      // 页面统一显示保存错误。
+    }
   };
 
   const handleAddTier = useCallback(() => {
@@ -172,7 +189,9 @@ export function PriceSettingsCard({
 
   const handleTierChange = useCallback(
     (index: number, field: keyof ContextTierDraft, value: string) => {
-      setEditTiers((rows) => rows.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
+      setEditTiers((rows) =>
+        rows.map((row, i) => (i === index ? { ...row, [field]: value } : row))
+      );
     },
     []
   );
@@ -200,7 +219,7 @@ export function PriceSettingsCard({
   const options = useMemo(
     () => [
       { value: '', label: t('usage_stats.model_price_select_placeholder') },
-      ...modelNames.map((name) => ({ value: name, label: name }))
+      ...modelNames.map((name) => ({ value: name, label: name })),
     ],
     [modelNames, t]
   );
@@ -209,14 +228,14 @@ export function PriceSettingsCard({
 
   const handleOpenTier = useCallback(() => {
     setTierRows(
-      loadTierMultipliers().map((rule) => ({
+      tierMultipliers.map((rule) => ({
         model: rule.model,
         tier: rule.tier,
         multiplier: String(rule.multiplier),
       }))
     );
     setTierOpen(true);
-  }, []);
+  }, [tierMultipliers]);
 
   const handleAddTierRow = useCallback(() => {
     setTierRows((rows) => [...rows, { model: '', tier: '', multiplier: '' }]);
@@ -233,19 +252,22 @@ export function PriceSettingsCard({
     setTierRows((rows) => rows.filter((_, i) => i !== index));
   }, []);
 
-  const handleSaveTier = useCallback(() => {
-    const rules: TierMultiplierRule[] = tierRows.map((row) => ({
-      model: row.model,
-      tier: row.tier,
-      multiplier: Number.parseFloat(row.multiplier),
-    }));
-    saveTierMultipliers(rules);
-    // 复用既有响应式链路：刷新 modelPrices 引用，触发本页所有依赖 [modelPrices]
-    // 的 memo（模型统计/趋势/总花费/sparkline/API密钥统计）重新计算花费。
-    // 凭证中心为独立路由，切换时会自然读取已更新的内存索引。
-    onPricesChange({ ...modelPrices });
-    setTierOpen(false);
-  }, [tierRows, onPricesChange, modelPrices]);
+  const handleSaveTier = useCallback(async () => {
+    if (pricingPending) return;
+    const rules = sanitizeTierMultipliers(
+      tierRows.map((row) => ({
+        model: row.model,
+        tier: row.tier,
+        multiplier: Number.parseFloat(row.multiplier),
+      }))
+    );
+    try {
+      await onPricingChange(modelPrices, rules);
+      setTierOpen(false);
+    } catch {
+      // 页面统一显示保存错误。
+    }
+  }, [modelPrices, onPricingChange, pricingPending, tierRows]);
 
   // ---- Sync modal handlers ----
 
@@ -293,7 +315,7 @@ export function PriceSettingsCard({
   }, [syncPending, t, collectSettingsFromInputs, applySettingsToInputs]);
 
   const handleSaveAndSync = useCallback(async () => {
-    if (syncPending) return;
+    if (pricingPending) return;
     setSyncPending(true);
     setSyncStatusMsg(t('usage_stats.price_sync_status_fetching'));
     setSyncStatusType('info');
@@ -311,15 +333,14 @@ export function PriceSettingsCard({
         return;
       }
 
-      // Merge synced prices into current prices
       const merged = { ...modelPrices, ...result.prices };
-      onPricesChange(merged);
+      await onPricingChange(merged, tierMultipliers);
 
       setSyncStatusMsg(
         t('usage_stats.price_sync_status_success', {
           matched: result.matchedCount,
           total: result.totalModels,
-        }),
+        })
       );
       setSyncStatusType('success');
     } catch (err) {
@@ -329,27 +350,29 @@ export function PriceSettingsCard({
       setSyncPending(false);
     }
   }, [
-    syncPending,
+    pricingPending,
     t,
     collectSettingsFromInputs,
     applySettingsToInputs,
     modelNames,
     modelPrices,
-    onPricesChange,
+    onPricingChange,
+    tierMultipliers,
   ]);
 
-  const syncStatusClass = syncStatusType === 'success'
-    ? `${styles.syncStatus} ${styles.syncStatusSuccess}`
-    : syncStatusType === 'error'
-      ? `${styles.syncStatus} ${styles.syncStatusError}`
-      : `${styles.syncStatus} ${styles.syncStatusInfo}`;
+  const syncStatusClass =
+    syncStatusType === 'success'
+      ? `${styles.syncStatus} ${styles.syncStatusSuccess}`
+      : syncStatusType === 'error'
+        ? `${styles.syncStatus} ${styles.syncStatusError}`
+        : `${styles.syncStatus} ${styles.syncStatusInfo}`;
 
   const headerActions = (
     <div className={styles.priceActions}>
-      <Button variant="secondary" size="sm" onClick={handleOpenTier}>
+      <Button variant="secondary" size="sm" onClick={handleOpenTier} disabled={pricingPending}>
         {t('usage_stats.tier_multiplier_button')}
       </Button>
-      <Button variant="secondary" size="sm" onClick={handleOpenSync}>
+      <Button variant="secondary" size="sm" onClick={handleOpenSync} disabled={pricingPending}>
         {t('usage_stats.price_sync_button')}
       </Button>
     </div>
@@ -410,7 +433,12 @@ export function PriceSettingsCard({
                 step="0.0001"
               />
             </div>
-            <Button variant="primary" onClick={handleSavePrice} disabled={!selectedModel}>
+            <Button
+              variant="primary"
+              onClick={handleSavePrice}
+              disabled={!selectedModel || pricingPending}
+              loading={saving}
+            >
               {t('common.save')}
             </Button>
           </div>
@@ -433,7 +461,8 @@ export function PriceSettingsCard({
                         {t('usage_stats.model_price_output')}: ${price.output.toFixed(4)}/1M
                       </span>
                       <span>
-                        {t('usage_stats.model_price_cache_create')}: ${price.cacheCreate.toFixed(4)}/1M
+                        {t('usage_stats.model_price_cache_create')}: ${price.cacheCreate.toFixed(4)}
+                        /1M
                       </span>
                       <span>
                         {t('usage_stats.model_price_cache_read')}: ${price.cacheRead.toFixed(4)}/1M
@@ -448,10 +477,20 @@ export function PriceSettingsCard({
                     </div>
                   </div>
                   <div className={styles.priceActions}>
-                    <Button variant="secondary" size="sm" onClick={() => handleOpenEdit(model)}>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => handleOpenEdit(model)}
+                      disabled={pricingPending}
+                    >
                       {t('common.edit')}
                     </Button>
-                    <Button variant="danger" size="sm" onClick={() => handleDeletePrice(model)}>
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      onClick={() => void handleDeletePrice(model)}
+                      disabled={pricingPending}
+                    >
                       {t('common.delete')}
                     </Button>
                   </div>
@@ -468,13 +507,18 @@ export function PriceSettingsCard({
       <Modal
         open={editModel !== null}
         title={editModel ?? ''}
-        onClose={() => setEditModel(null)}
+        onClose={() => !pricingPending && setEditModel(null)}
+        closeDisabled={pricingPending}
         footer={
           <div className={styles.priceActions}>
-            <Button variant="secondary" onClick={() => setEditModel(null)}>
+            <Button
+              variant="secondary"
+              onClick={() => setEditModel(null)}
+              disabled={pricingPending}
+            >
               {t('common.cancel')}
             </Button>
-            <Button variant="primary" onClick={handleSaveEdit}>
+            <Button variant="primary" onClick={handleSaveEdit} loading={saving}>
               {t('common.save')}
             </Button>
           </div>
@@ -616,18 +660,10 @@ export function PriceSettingsCard({
         closeDisabled={syncPending}
         footer={
           <div className={styles.priceActions}>
-            <Button
-              variant="secondary"
-              onClick={() => setSyncOpen(false)}
-              disabled={syncPending}
-            >
+            <Button variant="secondary" onClick={() => setSyncOpen(false)} disabled={syncPending}>
               {t('common.cancel')}
             </Button>
-            <Button
-              variant="secondary"
-              onClick={handleSaveSettingsOnly}
-              disabled={syncPending}
-            >
+            <Button variant="secondary" onClick={handleSaveSettingsOnly} disabled={syncPending}>
               {t('usage_stats.price_sync_save_settings')}
             </Button>
             <Button
@@ -645,9 +681,7 @@ export function PriceSettingsCard({
         width={540}
       >
         <div className={styles.syncModalBody}>
-          <p className={styles.syncDesc}>
-            {t('usage_stats.price_sync_desc')}
-          </p>
+          <p className={styles.syncDesc}>{t('usage_stats.price_sync_desc')}</p>
 
           <div className={styles.syncFieldGroup}>
             <label className={styles.syncFieldLabel}>
@@ -700,11 +734,7 @@ export function PriceSettingsCard({
             />
           </div>
 
-          {syncStatusMsg && (
-            <div className={syncStatusClass}>
-              {syncStatusMsg}
-            </div>
-          )}
+          {syncStatusMsg && <div className={syncStatusClass}>{syncStatusMsg}</div>}
         </div>
       </Modal>
 
@@ -712,13 +742,18 @@ export function PriceSettingsCard({
       <Modal
         open={tierOpen}
         title={t('usage_stats.tier_multiplier_title')}
-        onClose={() => setTierOpen(false)}
+        onClose={() => !pricingPending && setTierOpen(false)}
+        closeDisabled={pricingPending}
         footer={
           <div className={styles.priceActions}>
-            <Button variant="secondary" onClick={() => setTierOpen(false)}>
+            <Button
+              variant="secondary"
+              onClick={() => setTierOpen(false)}
+              disabled={pricingPending}
+            >
               {t('common.cancel')}
             </Button>
-            <Button variant="primary" onClick={handleSaveTier}>
+            <Button variant="primary" onClick={handleSaveTier} loading={saving}>
               {t('common.save')}
             </Button>
           </div>

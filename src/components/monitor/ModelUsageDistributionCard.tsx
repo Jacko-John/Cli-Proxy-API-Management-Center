@@ -20,7 +20,7 @@ const PIE_COLORS = [
   '#84cc16',
   '#f97316',
   '#8b8680',
-  '#3b82f6'
+  '#3b82f6',
 ];
 
 export interface ModelUsageDistributionCardProps {
@@ -32,7 +32,7 @@ export interface ModelUsageDistributionCardProps {
 export function ModelUsageDistributionCard({
   modelStats,
   loading,
-  isDark
+  isDark,
 }: ModelUsageDistributionCardProps) {
   const { t } = useTranslation();
   const [metric, setMetric] = useState<DistributionMetric>('requests');
@@ -41,7 +41,7 @@ export function ModelUsageDistributionCard({
     const sorted = [...modelStats]
       .map((item) => ({
         ...item,
-        value: metric === 'cost' ? item.cost : metric === 'tokens' ? item.tokens : item.requests
+        value: metric === 'cost' ? item.cost : metric === 'tokens' ? item.tokens : item.requests,
       }))
       .filter((item) => item.value > 0)
       .sort((a, b) => b.value - a.value);
@@ -52,7 +52,7 @@ export function ModelUsageDistributionCard({
     const total = sorted.reduce((sum, item) => sum + item.value, 0);
     const rows = topFive.map((item) => ({
       ...item,
-      share: total > 0 ? (item.value / total) * 100 : 0
+      share: total > 0 ? (item.value / total) * 100 : 0,
     }));
 
     if (othersValue > 0) {
@@ -70,7 +70,7 @@ export function ModelUsageDistributionCard({
         firstByteLatencySampleCount: 0,
         tpsSampleCount: 0,
         value: othersValue,
-        share: total > 0 ? (othersValue / total) * 100 : 0
+        share: total > 0 ? (othersValue / total) * 100 : 0,
       });
     }
 
@@ -92,9 +92,9 @@ export function ModelUsageDistributionCard({
           backgroundColor: rankedRows.map((_, index) => PIE_COLORS[index % PIE_COLORS.length]),
           borderColor: isDark ? 'rgba(24, 24, 27, 0.95)' : '#ffffff',
           borderWidth: 2,
-          hoverOffset: 8
-        }
-      ]
+          hoverOffset: 8,
+        },
+      ],
     }),
     [isDark, metric, rankedRows, t]
   );
@@ -110,12 +110,13 @@ export function ModelUsageDistributionCard({
             label: (context) => {
               const row = rankedRows[context.dataIndex];
               if (!row) return '';
-              const formattedValue = metric === 'cost' ? formatUsd(row.value) : formatCompactNumber(row.value);
+              const formattedValue =
+                metric === 'cost' ? formatUsd(row.value) : formatCompactNumber(row.value);
               return `${context.label}: ${formattedValue} (${row.share.toFixed(1)}%)`;
-            }
-          }
-        }
-      }
+            },
+          },
+        },
+      },
     }),
     [metric, rankedRows]
   );
@@ -172,7 +173,10 @@ export function ModelUsageDistributionCard({
                       {t('monitoring_center.share_label')}: {row.share.toFixed(1)}%
                     </span>
                   </div>
-                  <span className={styles.legendDot} style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }} />
+                  <span
+                    className={styles.legendDot}
+                    style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }}
+                  />
                   <span className={styles.distributionValue}>
                     {metric === 'cost' ? formatUsd(row.value) : formatCompactNumber(row.value)}
                   </span>

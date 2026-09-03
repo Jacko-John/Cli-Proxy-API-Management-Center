@@ -15,37 +15,33 @@ import {
   LinearScale,
   PointElement,
   Title,
-  Tooltip
+  Tooltip,
 } from 'chart.js';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useConfigStore, useThemeStore } from '@/stores';
+import { useUsageStatsStore } from '@/stores/useUsageStatsStore';
 import {
   ModelStatsCard,
   PriceSettingsCard,
   RequestEventsDetailsCard,
   useSparklines,
   useUsageData,
-  type UsagePayload
+  type UsagePayload,
 } from '@/components/usage';
 import type { ModelStat } from '@/components/usage/ModelStatsCard';
 import { MonitorStatCards } from '@/components/monitor/MonitorStatCards';
 import { MonitorTrendChart } from '@/components/monitor/MonitorTrendChart';
 import { ModelUsageDistributionCard } from '@/components/monitor/ModelUsageDistributionCard';
 import { MonitorApiKeyStatsCard } from '@/components/monitor/MonitorApiKeyStatsCard';
-import {
-  filterUsageByTimeRange,
-  getModelNamesFromUsage,
-  getModelStats,
-  type UsageTimeRange
-} from '@/utils/usage';
+import { getModelNamesFromUsage, getModelStats, type UsageTimeRange } from '@/utils/usage';
 import {
   DEFAULT_USAGE_TIME_RANGE,
   HOUR_WINDOW_BY_USAGE_TIME_RANGE,
   USAGE_TIME_RANGE_OPTIONS,
-  isUsageTimeRange
+  isUsageTimeRange,
 } from '@/utils/usageTimeRange';
 import styles from './MonitoringCenterPage.module.scss';
 
@@ -93,9 +89,17 @@ export function MonitoringCenterPage() {
     error,
     lastRefreshedAt,
     modelPrices,
-    setModelPrices,
+    tierMultipliers,
+    pricingSaving,
+    updatePricing,
     loadUsage,
-  } = useUsageData({ timeRange });
+  } = useUsageData({ timeRange, includePricing: true });
+  const eventsUsage = useUsageStatsStore((state) => state.eventsUsage);
+  const eventsLoaded = useUsageStatsStore((state) => state.eventsLoaded);
+  const eventsLoading = useUsageStatsStore((state) => state.eventsLoading);
+  const eventsError = useUsageStatsStore((state) => state.eventsError);
+  const eventsRefreshedAt = useUsageStatsStore((state) => state.eventsRefreshedAt);
+  const loadUsageEvents = useUsageStatsStore((state) => state.loadUsageEvents);
   const [authFiles, setAuthFiles] = useState<AuthFileItem[]>([]);
 
   const loadAuthFiles = useCallback(async () => {
@@ -105,9 +109,20 @@ export function MonitoringCenterPage() {
     setAuthFiles(files);
   }, []);
 
+  const loadEvents = useCallback(
+    () => loadUsageEvents(timeRange, true),
+    [loadUsageEvents, timeRange]
+  );
+
   const handleRefresh = useCallback(async () => {
-    await Promise.all([loadUsage(), loadAuthFiles()]);
-  }, [loadAuthFiles, loadUsage]);
+    const requests: Promise<unknown>[] = [loadUsage(), loadAuthFiles()];
+    if (eventsLoaded) requests.push(loadEvents());
+    await Promise.all(requests);
+  }, [eventsLoaded, loadAuthFiles, loadEvents, loadUsage]);
+
+  const handleEventsRefresh = useCallback(async () => {
+    await Promise.all([loadUsage(), loadEvents()]);
+  }, [loadEvents, loadUsage]);
 
   useHeaderRefresh(handleRefresh);
 
@@ -129,10 +144,7 @@ export function MonitoringCenterPage() {
     }
   }, [timeRange]);
 
-  const filteredUsage = useMemo(
-    () => (usage ? filterUsageByTimeRange(usage, timeRange) : null),
-    [usage, timeRange]
-  );
+  const filteredUsage = usage;
   const hourWindowHours =
     timeRange === 'all' ? undefined : HOUR_WINDOW_BY_USAGE_TIME_RANGE[timeRange];
   const rateWindowMinutes = useMemo(() => {
@@ -140,7 +152,7 @@ export function MonitoringCenterPage() {
     if (timeRange === '24h') return 24 * 60;
     if (timeRange === '7d') return 7 * 24 * 60;
     if (timeRange === '30d') return 30 * 24 * 60;
-    return 30;
+    return 0;
   }, [timeRange]);
   const nowMs = lastRefreshedAt?.getTime() ?? 0;
 
@@ -150,15 +162,21 @@ export function MonitoringCenterPage() {
       loading,
       nowMs,
       timeRange,
-      modelPrices
+      costEnabled: Object.keys(modelPrices).length > 0,
     });
 
   const modelNames = useMemo(() => getModelNamesFromUsage(usage), [usage]);
-  const modelStats = useMemo<ModelStat[]>(() => getModelStats(filteredUsage, modelPrices), [filteredUsage, modelPrices]);
+  const modelStats = useMemo<ModelStat[]>(() => getModelStats(filteredUsage), [filteredUsage]);
 
-  const handleTimeRangeChange = useCallback((range: UsageTimeRange) => {
-    setTimeRange(range);
-  }, []);
+  const handleTimeRangeChange = useCallback(
+    (range: UsageTimeRange) => {
+      setTimeRange(range);
+      if (eventsLoaded) {
+        void loadUsageEvents(range, true).catch(() => {});
+      }
+    },
+    [eventsLoaded, loadUsageEvents]
+  );
 
   const usageStatsToggle = (
     <div className={styles.periodButtons}>
@@ -199,6 +217,7 @@ export function MonitoringCenterPage() {
                 key={option.value}
                 variant={timeRange === option.value ? 'primary' : 'secondary'}
                 size="sm"
+                disabled={loading || eventsLoading}
                 onClick={() => handleTimeRangeChange(option.value)}
               >
                 {t(option.labelKey)}
@@ -234,7 +253,7 @@ export function MonitoringCenterPage() {
           tokens: tokensSparkline,
           rpm: rpmSparkline,
           tpm: tpmSparkline,
-          cost: costSparkline
+          cost: costSparkline,
         }}
       />
 
@@ -245,13 +264,8 @@ export function MonitoringCenterPage() {
           isDark={isDark}
           isMobile={isMobile}
           hourWindowHours={hourWindowHours}
-          modelPrices={modelPrices}
         />
-        <ModelUsageDistributionCard
-          modelStats={modelStats}
-          loading={loading}
-          isDark={isDark}
-        />
+        <ModelUsageDistributionCard modelStats={modelStats} loading={loading} isDark={isDark} />
       </div>
 
       <div className={styles.middleGrid}>
@@ -267,7 +281,6 @@ export function MonitoringCenterPage() {
           <MonitorApiKeyStatsCard
             usage={filteredUsage as UsagePayload | null}
             loading={loading}
-            modelPrices={modelPrices}
             title={t('monitoring_center.usage_stats_title')}
             extra={usageStatsToggle}
           />
@@ -275,14 +288,19 @@ export function MonitoringCenterPage() {
         <PriceSettingsCard
           modelNames={modelNames}
           modelPrices={modelPrices}
-          onPricesChange={setModelPrices}
+          tierMultipliers={tierMultipliers}
+          saving={pricingSaving}
+          onPricingChange={updatePricing}
         />
       </div>
 
       <div className={styles.fullWidthSection}>
         <RequestEventsDetailsCard
-          usage={filteredUsage}
-          loading={loading}
+          usage={eventsUsage}
+          loading={eventsLoading}
+          error={eventsError}
+          loaded={eventsLoaded}
+          onLoad={loadEvents}
           geminiKeys={config?.geminiApiKeys || []}
           claudeConfigs={config?.claudeApiKeys || []}
           codexConfigs={config?.codexApiKeys || []}
@@ -290,8 +308,8 @@ export function MonitoringCenterPage() {
           openaiProviders={config?.openaiCompatibility || []}
           authFiles={authFiles}
           fixedHeight
-          onRefresh={handleRefresh}
-          lastRefreshedAt={lastRefreshedAt}
+          onRefresh={handleEventsRefresh}
+          lastRefreshedAt={eventsRefreshedAt ? new Date(eventsRefreshedAt) : null}
         />
       </div>
     </div>

@@ -4,8 +4,7 @@ import {
   buildDailySeriesByModel,
   buildHourlyCostSeries,
   buildHourlySeriesByModel,
-  type ModelPrice,
-  type UsageTimeRange
+  type UsageTimeRange,
 } from '@/utils/usage';
 import type { UsagePayload } from './useUsageData';
 
@@ -20,7 +19,7 @@ export interface SparklineData {
       tension: number;
       pointRadius: number;
       borderWidth: number;
-    }
+    },
   ];
 }
 
@@ -33,7 +32,7 @@ export interface UseSparklinesOptions {
   loading: boolean;
   nowMs: number;
   timeRange?: UsageTimeRange;
-  modelPrices?: Record<string, ModelPrice>;
+  costEnabled?: boolean;
 }
 
 export interface UseSparklinesReturn {
@@ -64,7 +63,7 @@ const trimDailySeriesToRecentDays = (
   const startIndex = Math.max(series.labels.length - days, 0);
   return {
     labels: series.labels.slice(startIndex),
-    data: series.data.slice(startIndex)
+    data: series.data.slice(startIndex),
   };
 };
 
@@ -72,7 +71,7 @@ export function useSparklines({
   usage,
   loading,
   timeRange = '24h',
-  modelPrices = {}
+  costEnabled = false,
 }: UseSparklinesOptions): UseSparklinesReturn {
   const requestsAndTokensSeries = useMemo(() => {
     if (!usage) {
@@ -86,7 +85,7 @@ export function useSparklines({
       return {
         labels: requestBase.labels,
         requests: sumSeries(requestBase.dataByModel, requestBase.labels.length),
-        tokens: sumSeries(tokenBase.dataByModel, tokenBase.labels.length)
+        tokens: sumSeries(tokenBase.dataByModel, tokenBase.labels.length),
       };
     }
 
@@ -94,11 +93,11 @@ export function useSparklines({
     const tokenBase = buildDailySeriesByModel(usage, 'tokens');
     const requestSeries = {
       labels: requestBase.labels,
-      data: sumSeries(requestBase.dataByModel, requestBase.labels.length)
+      data: sumSeries(requestBase.dataByModel, requestBase.labels.length),
     };
     const tokenSeries = {
       labels: tokenBase.labels,
-      data: sumSeries(tokenBase.dataByModel, tokenBase.labels.length)
+      data: sumSeries(tokenBase.dataByModel, tokenBase.labels.length),
     };
 
     if (timeRange === '7d' || timeRange === '30d') {
@@ -108,35 +107,35 @@ export function useSparklines({
       return {
         labels: trimmedRequests.labels,
         requests: trimmedRequests.data,
-        tokens: trimmedTokens.data
+        tokens: trimmedTokens.data,
       };
     }
 
     return {
       labels: requestSeries.labels,
       requests: requestSeries.data,
-      tokens: tokenSeries.data
+      tokens: tokenSeries.data,
     };
   }, [timeRange, usage]);
 
   const costSeries = useMemo(() => {
-    if (!usage || Object.keys(modelPrices).length === 0) {
+    if (!usage || !costEnabled) {
       return { labels: [], data: [] };
     }
 
     if (timeRange === '7h' || timeRange === '24h') {
       const hourWindow = timeRange === '7h' ? 7 : 24;
-      const costBase = buildHourlyCostSeries(usage, modelPrices, hourWindow);
+      const costBase = buildHourlyCostSeries(usage, hourWindow);
       return { labels: costBase.labels, data: costBase.data };
     }
 
-    const costBase = buildDailyCostSeries(usage, modelPrices);
+    const costBase = buildDailyCostSeries(usage);
     const series = { labels: costBase.labels, data: costBase.data };
     if (timeRange === '7d' || timeRange === '30d') {
       return trimDailySeriesToRecentDays(series, timeRange === '7d' ? 7 : 30);
     }
     return series;
-  }, [modelPrices, timeRange, usage]);
+  }, [costEnabled, timeRange, usage]);
 
   const buildSparkline = useCallback(
     (
@@ -158,10 +157,10 @@ export function useSparklines({
               fill: true,
               tension: 0.45,
               pointRadius: 0,
-              borderWidth: 2
-            }
-          ]
-        }
+              borderWidth: 2,
+            },
+          ],
+        },
       };
     },
     [loading]
@@ -189,22 +188,26 @@ export function useSparklines({
 
   const rpmSparkline = useMemo(
     () =>
-      buildSparkline(
-        { labels: requestsAndTokensSeries.labels, data: requestsAndTokensSeries.requests },
-        '#22c55e',
-        'rgba(34, 197, 94, 0.18)'
-      ),
-    [buildSparkline, requestsAndTokensSeries.labels, requestsAndTokensSeries.requests]
+      timeRange === 'all'
+        ? null
+        : buildSparkline(
+            { labels: requestsAndTokensSeries.labels, data: requestsAndTokensSeries.requests },
+            '#22c55e',
+            'rgba(34, 197, 94, 0.18)'
+          ),
+    [buildSparkline, requestsAndTokensSeries.labels, requestsAndTokensSeries.requests, timeRange]
   );
 
   const tpmSparkline = useMemo(
     () =>
-      buildSparkline(
-        { labels: requestsAndTokensSeries.labels, data: requestsAndTokensSeries.tokens },
-        '#f97316',
-        'rgba(249, 115, 22, 0.18)'
-      ),
-    [buildSparkline, requestsAndTokensSeries.labels, requestsAndTokensSeries.tokens]
+      timeRange === 'all'
+        ? null
+        : buildSparkline(
+            { labels: requestsAndTokensSeries.labels, data: requestsAndTokensSeries.tokens },
+            '#f97316',
+            'rgba(249, 115, 22, 0.18)'
+          ),
+    [buildSparkline, requestsAndTokensSeries.labels, requestsAndTokensSeries.tokens, timeRange]
   );
 
   const costSparkline = useMemo(
@@ -222,6 +225,6 @@ export function useSparklines({
     tokensSparkline,
     rpmSparkline,
     tpmSparkline,
-    costSparkline
+    costSparkline,
   };
 }

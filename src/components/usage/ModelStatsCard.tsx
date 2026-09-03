@@ -33,7 +33,13 @@ interface ModelStatWithRate extends ModelStat {
   successRate: number;
 }
 
-export function ModelStatsCard({ modelStats, loading, hasPrices, title, extra }: ModelStatsCardProps) {
+export function ModelStatsCard({
+  modelStats,
+  loading,
+  hasPrices,
+  title,
+  extra,
+}: ModelStatsCardProps) {
   const { t } = useTranslation();
   const [sortKey, setSortKey] = useState<SortKey>('requests');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -72,7 +78,11 @@ export function ModelStatsCard({ modelStats, loading, hasPrices, title, extra }:
   const ariaSort = (key: SortKey): 'none' | 'ascending' | 'descending' =>
     sortKey === key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none';
   return (
-    <Card title={title ?? t('usage_stats.models')} extra={extra} className={styles.detailsFixedCard}>
+    <Card
+      title={title ?? t('usage_stats.models')}
+      extra={extra}
+      className={styles.detailsFixedCard}
+    >
       {loading ? (
         <div className={styles.hint}>{t('common.loading')}</div>
       ) : sorted.length > 0 ? (
@@ -112,7 +122,10 @@ export function ModelStatsCard({ modelStats, loading, hasPrices, title, extra }:
                         {arrow('tokens')}
                       </button>
                     </th>
-                    <th className={styles.sortableHeader} aria-sort={ariaSort('averageFirstByteLatencyMs')}>
+                    <th
+                      className={styles.sortableHeader}
+                      aria-sort={ariaSort('averageFirstByteLatencyMs')}
+                    >
                       <button
                         type="button"
                         className={styles.sortHeaderButton}

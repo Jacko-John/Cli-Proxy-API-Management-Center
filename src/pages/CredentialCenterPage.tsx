@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CodexCredentialQuotaCard } from '@/components/credentialCenter/CodexCredentialQuotaCard';
 import { AntigravityCredentialQuotaCard } from '@/components/credentialCenter/AntigravityCredentialQuotaCard';
@@ -9,16 +9,15 @@ import { useUsageData, type UsagePayload } from '@/components/usage';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { authFilesApi } from '@/services/api/authFiles';
 import type { AuthFileItem } from '@/types/authFile';
-import { filterUsageByTimeRange, type UsageTimeRange } from '@/utils/usage';
+import { type UsageTimeRange } from '@/utils/usage';
 import {
   DEFAULT_USAGE_TIME_RANGE,
   USAGE_TIME_RANGE_OPTIONS,
-  isUsageTimeRange
+  isUsageTimeRange,
 } from '@/utils/usageTimeRange';
 import styles from './CredentialCenterPage.module.scss';
 
 const TIME_RANGE_STORAGE_KEY = 'cli-proxy-credential-center-time-range-v1';
-const CREDENTIAL_USAGE_LOOKBACK_MS = 31 * 24 * 60 * 60 * 1000;
 
 const loadTimeRange = (): UsageTimeRange => {
   try {
@@ -35,17 +34,8 @@ const loadTimeRange = (): UsageTimeRange => {
 export function CredentialCenterPage() {
   const { t } = useTranslation();
   const [timeRange, setTimeRange] = useState<UsageTimeRange>(loadTimeRange);
-  const {
-    usage,
-    loading,
-    error,
-    lastRefreshedAt,
-    modelPrices,
-    loadUsage,
-  } = useUsageData({
+  const { usage, loading, error, lastRefreshedAt, loadUsage } = useUsageData({
     timeRange,
-    minimumLookbackMs: CREDENTIAL_USAGE_LOOKBACK_MS,
-    refreshFullRange: true
   });
   const [authFiles, setAuthFiles] = useState<AuthFileItem[]>([]);
 
@@ -80,10 +70,7 @@ export function CredentialCenterPage() {
     }
   }, [timeRange]);
 
-  const filteredUsage = useMemo(
-    () => (usage ? filterUsageByTimeRange(usage, timeRange) : null),
-    [usage, timeRange]
-  );
+  const filteredUsage = usage;
 
   const handleTimeRangeChange = useCallback((range: UsageTimeRange) => {
     setTimeRange(range);
@@ -137,30 +124,20 @@ export function CredentialCenterPage() {
         <CredentialStatsCard
           usage={filteredUsage as UsagePayload | null}
           loading={loading}
-          modelPrices={modelPrices}
           authFiles={authFiles}
         />
-        <CodexCredentialQuotaCard
-          usage={usage as UsagePayload | null}
-          loading={loading}
-          modelPrices={modelPrices}
-          authFiles={authFiles}
-        />
+        <CodexCredentialQuotaCard loading={loading} authFiles={authFiles} />
       </div>
 
       <div className={styles.credentialCenterGrid}>
         <AntigravityCredentialQuotaCard
-          usage={usage as UsagePayload | null}
           loading={loading}
-          modelPrices={modelPrices}
           authFiles={authFiles}
           quotaType="claude"
         />
 
         <AntigravityCredentialQuotaCard
-          usage={usage as UsagePayload | null}
           loading={loading}
-          modelPrices={modelPrices}
           authFiles={authFiles}
           quotaType="gemini"
         />

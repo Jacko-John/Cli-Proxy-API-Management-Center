@@ -33,7 +33,7 @@ import styles from '@/pages/UsagePage.module.scss';
 const ALL_FILTER = '__all__';
 const RESULT_SUCCESS_FILTER = 'success';
 const RESULT_FAILURE_FILTER = 'failure';
-const MAX_RENDERED_EVENTS = 500;
+const MAX_RENDERED_EVENTS = 100;
 
 type RequestEventRow = {
   id: string;
@@ -68,12 +68,15 @@ type RequestEventRow = {
 export interface RequestEventsDetailsCardProps {
   usage: unknown;
   loading: boolean;
+  error?: string | null;
   geminiKeys: GeminiKeyConfig[];
   claudeConfigs: ProviderKeyConfig[];
   codexConfigs: ProviderKeyConfig[];
   vertexConfigs: ProviderKeyConfig[];
   openaiProviders: OpenAIProviderConfig[];
   authFiles?: AuthFileItem[];
+  loaded?: boolean;
+  onLoad?: () => Promise<void> | void;
   onRefresh?: () => Promise<void> | void;
   lastRefreshedAt?: Date | null;
   fixedHeight?: boolean;
@@ -189,12 +192,15 @@ const encodeCsv = (value: string | number): string => {
 export function RequestEventsDetailsCard({
   usage,
   loading,
+  error,
   geminiKeys,
   claudeConfigs,
   codexConfigs,
   vertexConfigs,
   openaiProviders,
   authFiles,
+  loaded = true,
+  onLoad,
   onRefresh,
   lastRefreshedAt,
   fixedHeight = false,
@@ -660,6 +666,7 @@ export function RequestEventsDetailsCard({
               return;
             }
             showNotification(t('usage_stats.request_events_delete_success'), 'success');
+            await onRefresh?.();
           } catch (err: unknown) {
             const message = err instanceof Error ? err.message : '';
             showNotification(
@@ -673,7 +680,7 @@ export function RequestEventsDetailsCard({
         },
       });
     },
-    [deleteUsageRecords, showConfirmation, showNotification, t]
+    [deleteUsageRecords, onRefresh, showConfirmation, showNotification, t]
   );
 
   const handleCloseFailureModal = useCallback(() => {
@@ -798,7 +805,19 @@ export function RequestEventsDetailsCard({
         )}
       </div>
 
-      {loading && rows.length === 0 ? (
+      {error && <div className={styles.errorBox}>{error}</div>}
+
+      {!loaded ? (
+        <EmptyState
+          title={t('usage_stats.request_events_lazy_title')}
+          description={t('usage_stats.request_events_lazy_desc')}
+          action={
+            <Button variant="primary" size="sm" onClick={() => void onLoad?.()} disabled={loading}>
+              {loading ? t('common.loading') : t('usage_stats.request_events_load')}
+            </Button>
+          }
+        />
+      ) : loading && rows.length === 0 ? (
         <div className={styles.hint}>{t('common.loading')}</div>
       ) : rows.length === 0 ? (
         <EmptyState

@@ -120,32 +120,49 @@ export interface UsageDetailWithEndpoint extends UsageDetail {
   __timestampMs: number;
 }
 
-export interface UsageModelSnapshot {
+export interface UsageAggregateSnapshot {
   total_requests: number;
   success_count: number;
   failure_count: number;
   total_tokens: number;
-  details: UsageDetail[];
+  total_cost?: number;
+  latency_total_ms?: number;
+  latency_sample_count?: number;
+  first_byte_latency_total_ms?: number;
+  first_byte_latency_sample_count?: number;
+  positive_first_byte_latency_sample_count?: number;
+  tps_total?: number;
+  tps_sample_count?: number;
 }
 
-export interface UsageApiSnapshot {
-  total_requests: number;
-  success_count: number;
-  failure_count: number;
-  total_tokens: number;
+export interface UsageModelSnapshot extends UsageAggregateSnapshot {
+  details?: UsageDetail[];
+}
+
+export interface UsageApiSnapshot extends UsageAggregateSnapshot {
   models: Record<string, UsageModelSnapshot>;
 }
 
-export interface UsageStatsSnapshot {
-  total_requests: number;
-  success_count: number;
-  failure_count: number;
-  total_tokens: number;
+export interface UsageCredentialSnapshot extends UsageAggregateSnapshot {
+  auth_index?: string;
+  source?: string;
+  auth_type?: string;
+}
+
+export interface UsageStatsSnapshot extends UsageAggregateSnapshot {
+  range?: UsageTimeRange;
+  generated_at?: number;
+  rate_requests?: number;
+  rate_tokens?: number;
+  rate_minutes?: number;
   apis: Record<string, UsageApiSnapshot>;
-  requests_by_day: Record<string, number>;
-  requests_by_hour: Record<string, number>;
-  tokens_by_day: Record<string, number>;
-  tokens_by_hour: Record<string, number>;
+  credentials?: Record<string, UsageCredentialSnapshot>;
+  hours?: Record<string, UsageAggregateSnapshot>;
+  days?: Record<string, UsageAggregateSnapshot>;
+  requests_by_day?: Record<string, number>;
+  requests_by_hour?: Record<string, number>;
+  tokens_by_day?: Record<string, number>;
+  tokens_by_hour?: Record<string, number>;
 }
 
 export interface UsageQueryRange {
@@ -332,7 +349,9 @@ const extractUsageStatusFields = (
 ): Pick<UsageDetail, 'provider' | 'service_tier' | 'failure_status_code' | 'failure_body'> => {
   const provider = normalizeProvider(detail.provider);
   const serviceTier = normalizeServiceTier(detail.service_tier ?? detail.serviceTier);
-  const failStatusCode = normalizeFailStatusCode(detail.failure_status_code ?? detail.fail_status_code);
+  const failStatusCode = normalizeFailStatusCode(
+    detail.failure_status_code ?? detail.fail_status_code
+  );
   const failBody = normalizeFailBody(detail.failure_body ?? detail.fail_body);
   return {
     ...(provider ? { provider } : {}),
@@ -374,7 +393,10 @@ const normalizeUsageRecordDetail = (
     ...(id ? { id } : {}),
     timestamp,
     source,
-    auth_index: (detail.auth_index ?? detail.authIndex ?? detail.AuthIndex ?? null) as UsageDetail['auth_index'],
+    auth_index: (detail.auth_index ??
+      detail.authIndex ??
+      detail.AuthIndex ??
+      null) as UsageDetail['auth_index'],
     ...(latencyMs !== null ? { latency_ms: latencyMs } : {}),
     ...(ttftMs !== null ? { ttft_ms: ttftMs } : {}),
     tokens: normalizeUsageTokens(detail.tokens),
@@ -390,7 +412,9 @@ const normalizeUsageRecordDetail = (
   };
 };
 
-const collectBackendUsageDetails = (usageData: Record<string, unknown>): UsageDetailWithEndpoint[] => {
+const collectBackendUsageDetails = (
+  usageData: Record<string, unknown>
+): UsageDetailWithEndpoint[] => {
   const details: UsageDetailWithEndpoint[] = [];
 
   Object.entries(usageData).forEach(([endpoint, endpointEntry]) => {
@@ -414,16 +438,20 @@ const collectBackendUsageDetails = (usageData: Record<string, unknown>): UsageDe
 export function buildUsageSnapshotFromDetails(
   details: Iterable<UsageDetailWithEndpoint>
 ): UsageStatsSnapshot {
+  const requestsByDay: Record<string, number> = {};
+  const requestsByHour: Record<string, number> = {};
+  const tokensByDay: Record<string, number> = {};
+  const tokensByHour: Record<string, number> = {};
   const snapshot: UsageStatsSnapshot = {
     total_requests: 0,
     success_count: 0,
     failure_count: 0,
     total_tokens: 0,
     apis: {},
-    requests_by_day: {},
-    requests_by_hour: {},
-    tokens_by_day: {},
-    tokens_by_hour: {},
+    requests_by_day: requestsByDay,
+    requests_by_hour: requestsByHour,
+    tokens_by_day: tokensByDay,
+    tokens_by_hour: tokensByHour,
   };
 
   for (const detail of details) {
@@ -467,23 +495,25 @@ export function buildUsageSnapshotFromDetails(
     snapshot.total_tokens += totalTokens;
     apiEntry.total_tokens += totalTokens;
     modelEntry.total_tokens += totalTokens;
-    modelEntry.details.push(detail);
+    (modelEntry.details ??= []).push(detail);
 
     if (detail.__timestampMs > 0) {
       const date = new Date(detail.__timestampMs);
       const dayKey = date.toISOString().slice(0, 10);
       const hourKey = date.getUTCHours().toString().padStart(2, '0');
-      snapshot.requests_by_day[dayKey] = (snapshot.requests_by_day[dayKey] ?? 0) + 1;
-      snapshot.requests_by_hour[hourKey] = (snapshot.requests_by_hour[hourKey] ?? 0) + 1;
-      snapshot.tokens_by_day[dayKey] = (snapshot.tokens_by_day[dayKey] ?? 0) + totalTokens;
-      snapshot.tokens_by_hour[hourKey] = (snapshot.tokens_by_hour[hourKey] ?? 0) + totalTokens;
+      requestsByDay[dayKey] = (requestsByDay[dayKey] ?? 0) + 1;
+      requestsByHour[hourKey] = (requestsByHour[hourKey] ?? 0) + 1;
+      tokensByDay[dayKey] = (tokensByDay[dayKey] ?? 0) + totalTokens;
+      tokensByHour[hourKey] = (tokensByHour[hourKey] ?? 0) + totalTokens;
     }
   }
 
   return snapshot;
 }
 
-export function normalizeUsageData(usageData: unknown): UsageStatsSnapshot | Record<string, unknown> | null {
+export function normalizeUsageData(
+  usageData: unknown
+): UsageStatsSnapshot | Record<string, unknown> | null {
   const payload = isRecord(usageData) && isRecord(usageData.usage) ? usageData.usage : usageData;
   const usageRecord = isRecord(payload) ? payload : null;
   if (!usageRecord) {
@@ -952,7 +982,8 @@ export function collectUsageDetails(usageData: unknown): UsageDetail[] {
         const timestampMs = parseTimestampMs(timestamp);
         const latencyMs = extractLatencyMs(detailRaw);
         const ttftMs = extractFirstByteLatencyMs(detailRaw);
-        const id = typeof detailRaw.id === 'string' && detailRaw.id.trim() ? detailRaw.id.trim() : undefined;
+        const id =
+          typeof detailRaw.id === 'string' && detailRaw.id.trim() ? detailRaw.id.trim() : undefined;
         const reasoningEffort =
           typeof detailRaw.reasoning_effort === 'string' && detailRaw.reasoning_effort.trim()
             ? detailRaw.reasoning_effort.trim()
@@ -1038,7 +1069,8 @@ export function collectUsageDetailsWithEndpoint(usageData: unknown): UsageDetail
         const timestampMs = parseTimestampMs(timestamp);
         const latencyMs = extractLatencyMs(detailRaw);
         const ttftMs = extractFirstByteLatencyMs(detailRaw);
-        const id = typeof detailRaw.id === 'string' && detailRaw.id.trim() ? detailRaw.id.trim() : undefined;
+        const id =
+          typeof detailRaw.id === 'string' && detailRaw.id.trim() ? detailRaw.id.trim() : undefined;
         const reasoningEffort =
           typeof detailRaw.reasoning_effort === 'string' && detailRaw.reasoning_effort.trim()
             ? detailRaw.reasoning_effort.trim()
@@ -1135,6 +1167,25 @@ export function calculateRecentPerMinuteRates(
   windowMinutes: number = 30,
   usageData: unknown
 ): RateStats {
+  const usageRecord = isRecord(usageData) ? usageData : null;
+  const precomputedRequests = toNonNegativeNumber(usageRecord?.rate_requests);
+  const precomputedTokens = toNonNegativeNumber(usageRecord?.rate_tokens);
+  const precomputedMinutes = toNonNegativeNumber(usageRecord?.rate_minutes);
+  if (
+    precomputedRequests !== null &&
+    precomputedTokens !== null &&
+    precomputedMinutes !== null &&
+    precomputedMinutes > 0
+  ) {
+    return {
+      rpm: precomputedRequests / precomputedMinutes,
+      tpm: precomputedTokens / precomputedMinutes,
+      windowMinutes: precomputedMinutes,
+      requestCount: precomputedRequests,
+      tokenCount: precomputedTokens,
+    };
+  }
+
   const details = collectUsageDetails(usageData);
   const effectiveWindow = Number.isFinite(windowMinutes) && windowMinutes > 0 ? windowMinutes : 30;
 
@@ -1333,8 +1384,7 @@ export function calculateCost(
   // 兼容 service_tier / serviceTier 两种字段名（getModelStats/getApiStats 透传原始 record，未做规范化）。
   const serviceTier = detail.service_tier ?? (detail as { serviceTier?: string }).serviceTier;
   const multiplier = resolveTierMultiplier(modelName, serviceTier);
-  const total =
-    (inputCost + cacheReadCost + cacheCreationCost + completionCost) * multiplier;
+  const total = (inputCost + cacheReadCost + cacheCreationCost + completionCost) * multiplier;
   return Number.isFinite(total) && total > 0 ? total : 0;
 }
 
@@ -1345,6 +1395,11 @@ export function calculateTotalCost(
   usageData: unknown,
   modelPrices: Record<string, ModelPrice>
 ): number {
+  const usageRecord = isRecord(usageData) ? usageData : null;
+  const precomputed = toNonNegativeNumber(usageRecord?.total_cost);
+  if (precomputed !== null) {
+    return precomputed;
+  }
   const details = collectUsageDetails(usageData);
   if (!details.length || !Object.keys(modelPrices).length) {
     return 0;
@@ -1381,7 +1436,11 @@ const migrateLegacyModelPrice = (price: Record<string, unknown>): ModelPrice | n
   const promptRaw = Number(price.prompt);
   const completionRaw = Number(price.completion);
   const cacheRaw = Number(price.cache);
-  if (!Number.isFinite(promptRaw) && !Number.isFinite(completionRaw) && !Number.isFinite(cacheRaw)) {
+  if (
+    !Number.isFinite(promptRaw) &&
+    !Number.isFinite(completionRaw) &&
+    !Number.isFinite(cacheRaw)
+  ) {
     return null;
   }
   return {
@@ -1561,10 +1620,7 @@ export function getApiStats(
 /**
  * 获取模型统计数据
  */
-export function getModelStats(
-  usageData: unknown,
-  modelPrices: Record<string, ModelPrice>
-): ModelStatsSummary[] {
+export function getModelStats(usageData: unknown): ModelStatsSummary[] {
   const apis = getApisRecord(usageData);
   if (!apis) return [];
 
@@ -1604,10 +1660,35 @@ export function getModelStats(
       };
       existing.requests += Number(modelData.total_requests) || 0;
       existing.tokens += Number(modelData.total_tokens) || 0;
+      existing.cost += Number(modelData.total_cost) || 0;
+
+      const latencyTotal = Number(modelData.latency_total_ms);
+      const latencySamples = Number(modelData.latency_sample_count);
+      if (Number.isFinite(latencyTotal) && Number.isFinite(latencySamples) && latencySamples > 0) {
+        existing.latency.totalMs += latencyTotal;
+        existing.latency.sampleCount += latencySamples;
+      }
+      const firstByteTotal = Number(modelData.first_byte_latency_total_ms);
+      const firstByteSamples = Number(
+        modelData.positive_first_byte_latency_sample_count ??
+          modelData.first_byte_latency_sample_count
+      );
+      if (
+        Number.isFinite(firstByteTotal) &&
+        Number.isFinite(firstByteSamples) &&
+        firstByteSamples > 0
+      ) {
+        existing.firstByteLatency.totalMs += firstByteTotal;
+        existing.firstByteLatency.sampleCount += firstByteSamples;
+      }
+      const tpsTotal = Number(modelData.tps_total);
+      const tpsSamples = Number(modelData.tps_sample_count);
+      if (Number.isFinite(tpsTotal) && Number.isFinite(tpsSamples) && tpsSamples > 0) {
+        existing.totalTps += tpsTotal;
+        existing.tpsSampleCount += tpsSamples;
+      }
 
       const details = Array.isArray(modelData.details) ? modelData.details : [];
-
-      const price = modelPrices[modelName];
 
       const hasExplicitCounts =
         typeof modelData.success_count === 'number' || typeof modelData.failure_count === 'number';
@@ -1625,7 +1706,8 @@ export function getModelStats(
           const tokens = isRecord(detailRecord?.tokens) ? detailRecord.tokens : null;
           const outputTokensRaw = Number(tokens?.output_tokens);
           const outputTokens = Number.isFinite(outputTokensRaw) ? Math.max(outputTokensRaw, 0) : 0;
-          const tps = generationMs && generationMs > 0 ? outputTokens / (generationMs / 1000) : null;
+          const tps =
+            generationMs && generationMs > 0 ? outputTokens / (generationMs / 1000) : null;
           if (!hasExplicitCounts) {
             if (detailRecord?.failed === true) {
               existing.failureCount += 1;
@@ -1642,13 +1724,6 @@ export function getModelStats(
           if (tps !== null && Number.isFinite(tps) && tps >= 0) {
             existing.totalTps += tps;
             existing.tpsSampleCount += 1;
-          }
-
-          if (price && detailRecord) {
-            existing.cost += calculateCost(
-              { ...(detailRecord as unknown as UsageDetail), __modelName: modelName },
-              modelPrices
-            );
           }
         });
       }
@@ -1704,6 +1779,14 @@ export function formatDayLabel(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+const SERVER_DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+const resolveUsageDayLabel = (value: string): string => {
+  if (SERVER_DAY_PATTERN.test(value)) return value;
+  const date = new Date(Number(value) * 1000);
+  return Number.isNaN(date.getTime()) ? '' : formatDayLabel(date);
+};
+
 /**
  * 构建小时级别的数据序列
  */
@@ -1733,6 +1816,30 @@ export function buildHourlySeriesByModel(
   for (let i = 0; i < resolvedHourWindow; i++) {
     const bucketStart = earliestTime + i * hourMs;
     labels.push(formatHourLabel(new Date(bucketStart)));
+  }
+
+  const usageRecord = isRecord(usageData) ? usageData : null;
+  const precomputedHours = isRecord(usageRecord?.hours) ? usageRecord.hours : null;
+  if (precomputedHours) {
+    const values = new Array(labels.length).fill(0);
+    let hasData = false;
+    Object.entries(precomputedHours).forEach(([timestamp, rawMetric]) => {
+      if (!isRecord(rawMetric)) return;
+      const date = new Date(Number(timestamp) * 1000);
+      if (Number.isNaN(date.getTime())) return;
+      date.setMinutes(0, 0, 0);
+      const bucketIndex = Math.floor((date.getTime() - earliestTime) / hourMs);
+      if (bucketIndex < 0 || bucketIndex >= values.length) return;
+      const value = Number(metric === 'tokens' ? rawMetric.total_tokens : rawMetric.total_requests);
+      if (!Number.isFinite(value) || value <= 0) return;
+      values[bucketIndex] += value;
+      hasData = true;
+    });
+    return {
+      labels,
+      dataByModel: hasData ? new Map([['all', values]]) : new Map(),
+      hasData,
+    };
   }
 
   const details = collectUsageDetails(usageData);
@@ -1793,6 +1900,27 @@ export function buildDailySeriesByModel(
   dataByModel: Map<string, number[]>;
   hasData: boolean;
 } {
+  const usageRecord = isRecord(usageData) ? usageData : null;
+  const precomputedDays = isRecord(usageRecord?.days) ? usageRecord.days : null;
+  if (precomputedDays) {
+    const valuesByDay = new Map<string, number>();
+    Object.entries(precomputedDays).forEach(([day, rawMetric]) => {
+      if (!isRecord(rawMetric)) return;
+      const label = resolveUsageDayLabel(day);
+      const value = Number(metric === 'tokens' ? rawMetric.total_tokens : rawMetric.total_requests);
+      if (!label || !Number.isFinite(value) || value <= 0) return;
+      valuesByDay.set(label, (valuesByDay.get(label) ?? 0) + value);
+    });
+    const labels = Array.from(valuesByDay.keys()).sort();
+    return {
+      labels,
+      dataByModel: labels.length
+        ? new Map([['all', labels.map((label) => valuesByDay.get(label) ?? 0)]])
+        : new Map(),
+      hasData: labels.length > 0,
+    };
+  }
+
   const details = collectUsageDetails(usageData);
   const valuesByModel = new Map<string, Map<string, number>>();
   const labelsSet = new Set<string>();
@@ -1841,9 +1969,7 @@ export interface ChartDataset {
   data: number[];
   borderColor: string;
   backgroundColor:
-    | string
-    | CanvasGradient
-    | ((context: ScriptableContext<'line'>) => string | CanvasGradient);
+    string | CanvasGradient | ((context: ScriptableContext<'line'>) => string | CanvasGradient);
   pointBackgroundColor?: string;
   pointBorderColor?: string;
   fill: boolean;
@@ -1990,7 +2116,10 @@ const alignSeriesToLabels = (
   labels: string[],
   source: { labels: string[]; data: number[] }
 ): number[] => {
-  if (labels.length === source.labels.length && labels.every((label, index) => label === source.labels[index])) {
+  if (
+    labels.length === source.labels.length &&
+    labels.every((label, index) => label === source.labels[index])
+  ) {
     return source.data;
   }
 
@@ -2003,7 +2132,6 @@ const alignSeriesToLabels = (
 
 export function buildUsageTotalsTrend(
   usageData: unknown,
-  modelPrices: Record<string, ModelPrice>,
   period: 'hour' | 'day' = 'day',
   options: { hourWindowHours?: number } = {}
 ): UsageTotalsTrendData {
@@ -2017,14 +2145,14 @@ export function buildUsageTotalsTrend(
       : buildDailySeriesByModel(usageData, 'tokens');
   const costBase =
     period === 'hour'
-      ? buildHourlyCostSeries(usageData, modelPrices, options.hourWindowHours)
-      : buildDailyCostSeries(usageData, modelPrices);
+      ? buildHourlyCostSeries(usageData, options.hourWindowHours)
+      : buildDailyCostSeries(usageData);
 
   return {
     labels: requestBase.labels,
     requestSeries: sumModelSeries(requestBase.dataByModel, requestBase.labels.length),
     tokenSeries: sumModelSeries(tokenBase.dataByModel, tokenBase.labels.length),
-    costSeries: alignSeriesToLabels(requestBase.labels, costBase)
+    costSeries: alignSeriesToLabels(requestBase.labels, costBase),
   };
 }
 
@@ -2497,11 +2625,7 @@ export interface CostSeries {
 /**
  * 按小时构建费用时间序列
  */
-export function buildHourlyCostSeries(
-  usageData: unknown,
-  modelPrices: Record<string, ModelPrice>,
-  hourWindow: number = 24
-): CostSeries {
+export function buildHourlyCostSeries(usageData: unknown, hourWindow: number = 24): CostSeries {
   const hourMs = 60 * 60 * 1000;
   const resolvedHourWindow =
     Number.isFinite(hourWindow) && hourWindow > 0
@@ -2521,62 +2645,46 @@ export function buildHourlyCostSeries(
   }
 
   const data = new Array(labels.length).fill(0);
-  const details = collectUsageDetails(usageData);
-  let hasData = false;
-
-  details.forEach((detail) => {
-    const timestamp =
-      typeof detail.__timestampMs === 'number'
-        ? detail.__timestampMs
-        : parseTimestampMs(detail.timestamp);
-    if (!Number.isFinite(timestamp) || timestamp <= 0) return;
-    const normalized = new Date(timestamp);
-    normalized.setMinutes(0, 0, 0);
-    const bucketStart = normalized.getTime();
-    const lastBucketTime = earliestTime + (labels.length - 1) * hourMs;
-    if (bucketStart < earliestTime || bucketStart > lastBucketTime) return;
-    const bucketIndex = Math.floor((bucketStart - earliestTime) / hourMs);
-    if (bucketIndex < 0 || bucketIndex >= labels.length) return;
-
-    const cost = calculateCost(detail, modelPrices);
-    if (cost > 0) {
+  const usageRecord = isRecord(usageData) ? usageData : null;
+  const precomputedHours = isRecord(usageRecord?.hours) ? usageRecord.hours : null;
+  if (precomputedHours) {
+    let hasData = false;
+    Object.entries(precomputedHours).forEach(([timestamp, rawMetric]) => {
+      if (!isRecord(rawMetric)) return;
+      const date = new Date(Number(timestamp) * 1000);
+      if (Number.isNaN(date.getTime())) return;
+      date.setMinutes(0, 0, 0);
+      const bucketIndex = Math.floor((date.getTime() - earliestTime) / hourMs);
+      if (bucketIndex < 0 || bucketIndex >= data.length) return;
+      const cost = Number(rawMetric.total_cost);
+      if (!Number.isFinite(cost) || cost <= 0) return;
       data[bucketIndex] += cost;
       hasData = true;
-    }
-  });
+    });
+    return { labels, data, hasData };
+  }
 
-  return { labels, data, hasData };
+  return { labels, data, hasData: false };
 }
 
 /**
  * 按天构建费用时间序列
  */
-export function buildDailyCostSeries(
-  usageData: unknown,
-  modelPrices: Record<string, ModelPrice>
-): CostSeries {
-  const details = collectUsageDetails(usageData);
-  const dayMap: Record<string, number> = {};
-  let hasData = false;
+export function buildDailyCostSeries(usageData: unknown): CostSeries {
+  const usageRecord = isRecord(usageData) ? usageData : null;
+  const precomputedDays = isRecord(usageRecord?.days) ? usageRecord.days : null;
+  if (precomputedDays) {
+    const dayMap: Record<string, number> = {};
+    Object.entries(precomputedDays).forEach(([day, rawMetric]) => {
+      if (!isRecord(rawMetric)) return;
+      const label = resolveUsageDayLabel(day);
+      const cost = Number(rawMetric.total_cost);
+      if (!label || !Number.isFinite(cost) || cost <= 0) return;
+      dayMap[label] = (dayMap[label] ?? 0) + cost;
+    });
+    const labels = Object.keys(dayMap).sort();
+    return { labels, data: labels.map((label) => dayMap[label]), hasData: labels.length > 0 };
+  }
 
-  details.forEach((detail) => {
-    const timestamp =
-      typeof detail.__timestampMs === 'number'
-        ? detail.__timestampMs
-        : parseTimestampMs(detail.timestamp);
-    if (!Number.isFinite(timestamp) || timestamp <= 0) return;
-    const dayLabel = formatDayLabel(new Date(timestamp));
-    if (!dayLabel) return;
-
-    const cost = calculateCost(detail, modelPrices);
-    if (cost > 0) {
-      dayMap[dayLabel] = (dayMap[dayLabel] || 0) + cost;
-      hasData = true;
-    }
-  });
-
-  const labels = Object.keys(dayMap).sort();
-  const data = labels.map((l) => dayMap[l]);
-
-  return { labels, data, hasData };
+  return { labels: [], data: [], hasData: false };
 }

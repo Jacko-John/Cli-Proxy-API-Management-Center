@@ -5,7 +5,7 @@ import {
   extractTotalTokens,
   normalizeAuthIndex,
   type ModelPrice,
-  type UsageDetail
+  type UsageDetail,
 } from '@/utils/usage';
 
 export interface CredentialUsageRow {
@@ -42,8 +42,14 @@ export interface CredentialWindowUsageSummary {
 interface CredentialUsageInput {
   usage: unknown;
   authFiles: AuthFileItem[];
+}
+
+interface CredentialCostInput extends CredentialUsageInput {
   modelPrices: Record<string, ModelPrice>;
 }
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 interface AuthFileLookup {
   authIndexToFile: Map<string, AuthFileItem>;
@@ -100,7 +106,8 @@ const resolveCredentialMatch = (
     (sourceText ? lookup.authFileNameToFile.get(sourceText) : undefined);
 
   const resolvedAuthIndex =
-    (matchedFile && normalizeAuthIndex(matchedFile['auth_index'] ?? matchedFile.authIndex)) ?? authIndex;
+    (matchedFile && normalizeAuthIndex(matchedFile['auth_index'] ?? matchedFile.authIndex)) ??
+    authIndex;
   const authFileName = matchedFile?.name ?? null;
 
   if (!resolvedAuthIndex && !authFileName) {
@@ -112,7 +119,7 @@ const resolveCredentialMatch = (
     displayName: authFileName ?? resolvedAuthIndex ?? '-',
     type: normalizeCredentialType(matchedFile),
     authIndex: resolvedAuthIndex ?? null,
-    authFileName
+    authFileName,
   };
 };
 
@@ -121,7 +128,9 @@ const getRequestCompletedAtMs = (detail: UsageDetail): number => {
   if (!Number.isFinite(timestampMs) || timestampMs <= 0) return Number.NaN;
 
   const latencyMs =
-    typeof detail.latency_ms === 'number' && Number.isFinite(detail.latency_ms) && detail.latency_ms > 0
+    typeof detail.latency_ms === 'number' &&
+    Number.isFinite(detail.latency_ms) &&
+    detail.latency_ms > 0
       ? detail.latency_ms
       : 0;
   return timestampMs + latencyMs;
@@ -130,11 +139,65 @@ const getRequestCompletedAtMs = (detail: UsageDetail): number => {
 export function buildCredentialUsageRows({
   usage,
   authFiles,
-  modelPrices
 }: CredentialUsageInput): CredentialUsageRow[] {
   if (!usage) return [];
 
   const lookup = buildAuthFileLookup(authFiles);
+  const usageRecord = isRecord(usage) ? usage : null;
+  const precomputed = isRecord(usageRecord?.credentials) ? usageRecord.credentials : null;
+  if (precomputed) {
+    const rows = new Map<string, CredentialUsageRow>();
+    Object.entries(precomputed).forEach(([key, raw]) => {
+      if (!isRecord(raw)) return;
+      const match = resolveCredentialMatch(
+        {
+          timestamp: '',
+          source: typeof raw.source === 'string' ? raw.source : '',
+          auth_index:
+            typeof raw.auth_index === 'string' || typeof raw.auth_index === 'number'
+              ? raw.auth_index
+              : null,
+          tokens: {
+            input_tokens: 0,
+            output_tokens: 0,
+            reasoning_tokens: 0,
+            cached_tokens: 0,
+            total_tokens: 0,
+          },
+          failed: false,
+        },
+        lookup
+      );
+      if (!match) return;
+      const rowKey = match.rowKey || key;
+      const requests = Number(raw.total_requests) || 0;
+      const successCount = Number(raw.success_count) || 0;
+      const failureCount = Number(raw.failure_count) || 0;
+      const existing = rows.get(rowKey) ?? {
+        key: rowKey,
+        displayName: match.displayName,
+        type: match.type,
+        authIndex: match.authIndex,
+        authFileName: match.authFileName,
+        requests: 0,
+        successCount: 0,
+        failureCount: 0,
+        tokens: 0,
+        cost: 0,
+        successRate: 100,
+      };
+      existing.requests += requests;
+      existing.successCount += successCount;
+      existing.failureCount += failureCount;
+      existing.tokens += Number(raw.total_tokens) || 0;
+      existing.cost += Number(raw.total_cost) || 0;
+      existing.successRate =
+        existing.requests > 0 ? (existing.successCount / existing.requests) * 100 : 100;
+      rows.set(rowKey, existing);
+    });
+    return Array.from(rows.values());
+  }
+
   const rowMap = new Map<string, CredentialUsageRow>();
 
   collectUsageDetails(usage).forEach((detail) => {
@@ -152,7 +215,7 @@ export function buildCredentialUsageRows({
       failureCount: 0,
       tokens: 0,
       cost: 0,
-      successRate: 100
+      successRate: 100,
     };
 
     existing.requests += 1;
@@ -162,8 +225,8 @@ export function buildCredentialUsageRows({
       existing.successCount += 1;
     }
     existing.tokens += extractTotalTokens(detail);
-    existing.cost += calculateCost(detail, modelPrices);
-    existing.successRate = existing.requests > 0 ? (existing.successCount / existing.requests) * 100 : 100;
+    existing.successRate =
+      existing.requests > 0 ? (existing.successCount / existing.requests) * 100 : 100;
     rowMap.set(match.rowKey, existing);
   });
 
@@ -173,8 +236,8 @@ export function buildCredentialUsageRows({
 export function buildCredentialCostBuckets({
   usage,
   authFiles,
-  modelPrices
-}: CredentialUsageInput): Map<string, CredentialCostEvent[]> {
+  modelPrices,
+}: CredentialCostInput): Map<string, CredentialCostEvent[]> {
   const buckets = new Map<string, CredentialCostEvent[]>();
 
   authFiles.forEach((file) => {
@@ -199,7 +262,7 @@ export function buildCredentialCostBuckets({
       completedAtMs,
       cost: calculateCost(detail, modelPrices),
       tokens: extractTotalTokens(detail),
-      failed: detail.failed === true
+      failed: detail.failed === true,
     });
     buckets.set(match.rowKey, events);
   });
@@ -238,7 +301,7 @@ export function sumCredentialUsageInWindow(
       successCount: 0,
       failureCount: 0,
       tokens: 0,
-      cost: 0
+      cost: 0,
     }
   );
 }
