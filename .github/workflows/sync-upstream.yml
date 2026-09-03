@@ -1,18 +1,31 @@
-name: Sync Upstream
+name: Sync Upstream Release
 
 on:
   schedule:
     - cron: '17 */6 * * *'
   workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: '上游正式 Release Tag；留空使用最新版本'
+        required: false
+        type: string
+      force_release:
+        description: '已发布时仍创建下一个 patch 版本'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
-  sync-upstream:
+  sync-upstream-release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
     concurrency:
-      group: sync-upstream-main
+      group: sync-upstream-release-main
       cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      UPSTREAM_REPOSITORY: router-for-me/Cli-Proxy-API-Management-Center
 
     steps:
       - name: Checkout main branch
@@ -27,107 +40,162 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Add upstream remote
-        run: |
-          git remote add upstream https://github.com/router-for-me/Cli-Proxy-API-Management-Center || git remote set-url upstream https://github.com/router-for-me/Cli-Proxy-API-Management-Center
-
-      - name: Fetch upstream main
-        run: git fetch upstream main --tags
-
-      - name: Merge upstream main
-        id: merge
+      - name: Resolve upstream stable release
+        id: upstream
+        env:
+          REQUESTED_TAG: ${{ inputs.upstream_tag }}
         run: |
           set -euo pipefail
-          before_sha="$(git rev-parse HEAD)"
 
-          merge_status=0
-          git merge --no-ff --no-commit upstream/main || merge_status=$?
+          if [ -n "${REQUESTED_TAG}" ]; then
+            release_json="$(gh api "repos/${UPSTREAM_REPOSITORY}/releases/tags/${REQUESTED_TAG}")"
+          else
+            release_json="$(gh api "repos/${UPSTREAM_REPOSITORY}/releases/latest")"
+          fi
 
-          if ! git rev-parse -q --verify MERGE_HEAD >/dev/null; then
-            if [ "$merge_status" -ne 0 ]; then
-              exit "$merge_status"
-            fi
+          tag="$(jq -r '.tag_name // empty' <<<"${release_json}")"
+          release_url="$(jq -r '.html_url // empty' <<<"${release_json}")"
+          draft="$(jq -r '.draft' <<<"${release_json}")"
+          prerelease="$(jq -r '.prerelease' <<<"${release_json}")"
 
-            echo "changed=false" >> "$GITHUB_OUTPUT"
+          if [ -z "${tag}" ] || [ "${draft}" != "false" ] || [ "${prerelease}" != "false" ]; then
+            echo "Only published, non-prerelease upstream releases are supported."
+            exit 1
+          fi
+          git check-ref-format "refs/tags/${tag}"
+
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "url=${release_url}" >> "${GITHUB_OUTPUT}"
+
+      - name: Resolve patch release
+        id: release
+        env:
+          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+          FORCE_RELEASE: ${{ inputs.force_release }}
+        run: |
+          set -euo pipefail
+
+          prefix="${UPSTREAM_TAG}-patch."
+          highest=0
+          release_tags="$(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq '.[].tag_name'
+          )"
+          while IFS= read -r release_tag; do
+            case "${release_tag}" in
+              "${prefix}"*)
+                number="${release_tag#"${prefix}"}"
+                if [[ "${number}" =~ ^[0-9]+$ ]] && (( number > highest )); then
+                  highest="${number}"
+                fi
+                ;;
+            esac
+          done <<<"${release_tags}"
+
+          if (( highest > 0 )) && [ "${FORCE_RELEASE:-false}" != "true" ]; then
+            echo "skip=true" >> "${GITHUB_OUTPUT}"
+            echo "patch_tag=${UPSTREAM_TAG}-patch.${highest}" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
-          git restore --source="$before_sha" --staged --worktree -- README.md
+          echo "skip=false" >> "${GITHUB_OUTPUT}"
+          echo "patch_tag=${UPSTREAM_TAG}-patch.$((highest + 1))" >> "${GITHUB_OUTPUT}"
 
+      - name: Add upstream remote and fetch release tag
+        if: steps.release.outputs.skip != 'true'
+        env:
+          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+        run: |
+          git remote add upstream "https://github.com/${UPSTREAM_REPOSITORY}.git" || \
+            git remote set-url upstream "https://github.com/${UPSTREAM_REPOSITORY}.git"
+          git fetch --no-tags upstream "refs/tags/${UPSTREAM_TAG}:refs/tags/${UPSTREAM_TAG}"
+
+      - name: Merge upstream release
+        if: steps.release.outputs.skip != 'true'
+        env:
+          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+        run: |
+          set -euo pipefail
+          before_sha="$(git rev-parse HEAD)"
+          merge_status=0
+          git merge --no-ff --no-commit "${UPSTREAM_TAG}" || merge_status=$?
+
+          if ! git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+            exit "${merge_status}"
+          fi
+
+          git restore --source="${before_sha}" --staged --worktree -- README.md
           if git ls-files --error-unmatch CLAUDE.md >/dev/null 2>&1; then
-            if git cat-file -e "$before_sha:CLAUDE.md" 2>/dev/null; then
-              git restore --source="$before_sha" --staged --worktree -- CLAUDE.md
+            if git cat-file -e "${before_sha}:CLAUDE.md" 2>/dev/null; then
+              git restore --source="${before_sha}" --staged --worktree -- CLAUDE.md
             else
               git rm -f --ignore-unmatch CLAUDE.md
             fi
           fi
 
-          remaining_conflicts="$(git diff --name-only --diff-filter=U)"
-          if [ -n "$remaining_conflicts" ]; then
+          conflicts="$(git diff --name-only --diff-filter=U)"
+          if [ -n "${conflicts}" ]; then
             echo "Merge conflicts require manual resolution:"
-            printf '%s\n' "$remaining_conflicts"
+            printf '%s\n' "${conflicts}"
             exit 1
           fi
 
-          git commit --allow-empty -m "Merge upstream/main"
-          after_sha="$(git rev-parse HEAD)"
-
-          if [ "$before_sha" = "$after_sha" ]; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Generate release metadata
-        if: steps.merge.outputs.changed == 'true'
-        id: release_meta
-        run: |
-          set -euo pipefail
-          timestamp="$(date -u +'%Y%m%d-%H%M%S')"
-          short_sha="$(git rev-parse --short HEAD)"
-          tag="auto-sync-${timestamp}-${short_sha}"
-          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          git commit -m "Merge upstream release ${UPSTREAM_TAG}"
 
       - name: Setup Node.js
-        if: steps.merge.outputs.changed == 'true'
+        if: steps.release.outputs.skip != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '24'
 
       - name: Setup Bun
-        if: steps.merge.outputs.changed == 'true'
+        if: steps.release.outputs.skip != 'true'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.14'
 
       - name: Install dependencies
-        if: steps.merge.outputs.changed == 'true'
+        if: steps.release.outputs.skip != 'true'
         run: bun install --frozen-lockfile
 
-      - name: Build all-in-one HTML
-        if: steps.merge.outputs.changed == 'true'
-        run: bun run build
+      - name: Verify and build patched release
+        if: steps.release.outputs.skip != 'true'
         env:
-          VERSION: ${{ steps.release_meta.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.patch_tag }}
+        run: bun run verify
 
-      - name: Prepare release assets
-        if: steps.merge.outputs.changed == 'true'
+      - name: Prepare release asset and notes
+        if: steps.release.outputs.skip != 'true'
+        env:
+          PATCH_TAG: ${{ steps.release.outputs.patch_tag }}
+          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+          UPSTREAM_URL: ${{ steps.upstream.outputs.url }}
         run: |
-          cd dist
-          mv index.html management.html
-          ls -lh management.html
+          mv dist/index.html dist/management.html
+          commit_sha="$(git rev-parse HEAD)"
+          cat > release-notes.md <<EOF
+          Patched build based on upstream release [${UPSTREAM_TAG}](${UPSTREAM_URL}).
 
-      - name: Push merged changes
-        if: steps.merge.outputs.changed == 'true'
+          - Upstream release: \`${UPSTREAM_TAG}\`
+          - Patch release: \`${PATCH_TAG}\`
+          - Source commit: \`${commit_sha}\`
+          EOF
+          ls -lh dist/management.html
+
+      - name: Push patched main branch
+        if: steps.release.outputs.skip != 'true'
         run: git push origin HEAD:main
 
-      - name: Create release
-        if: steps.merge.outputs.changed == 'true'
+      - name: Create patched release
+        if: steps.release.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PATCH_TAG: ${{ steps.release.outputs.patch_tag }}
         run: |
-          gh release create "${{ steps.release_meta.outputs.tag }}" dist/management.html \
-            --repo ${{ github.repository }} \
+          gh release create "${PATCH_TAG}" dist/management.html \
+            --repo "${GITHUB_REPOSITORY}" \
             --target "$(git rev-parse HEAD)" \
-            --title "${{ steps.release_meta.outputs.tag }}" \
-            --generate-notes
+            --title "${PATCH_TAG}" \
+            --notes-file release-notes.md
+
+      - name: Report existing patched release
+        if: steps.release.outputs.skip == 'true'
+        run: echo "${{ steps.release.outputs.patch_tag }} already exists; nothing to publish."

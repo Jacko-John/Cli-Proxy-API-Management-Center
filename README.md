@@ -49,6 +49,14 @@
   - 按 Claude / Gemini 模型分组展示 Antigravity 凭证的剩余额度百分比与配额重置时间。
   - 结合已导入的模型价格估算各分组的剩余可用花费。
 
+## 自动同步与发布
+
+- `.github/workflows/sync-upstream.yml` 每 6 小时检查一次上游最新的正式 Release，不跟随上游 `main` 的普通提交发布。
+- 工作流合并对应的精确上游 Tag，执行完整测试、ESLint 和生产构建，成功后发布单文件 `management.html`。
+- 补丁 Release 使用 `<上游Tag>-patch.N`，例如 `v1.22.12-patch.1`；同一上游版本默认只发布一次。
+- 可通过 `workflow_dispatch` 指定历史上游 Tag；启用 `force_release` 时会为该上游版本发布下一个 patch 版本。
+- 合并冲突或验证失败时不会推送 `main`，也不会创建 Release。
+
 ## 使用方法
 
 在CPA的配置面板中，设置面板仓库为本仓库地址后，强制刷新（Ctrl+F5）页面
