@@ -7,6 +7,7 @@ import { AuthFilesOAuthModelAliasEditPage } from '@/pages/AuthFilesOAuthModelAli
 import { OAuthPage } from '@/pages/OAuthPage';
 import { QuotaPage } from '@/features/quota/QuotaPage';
 import { SafetyCenterPage } from '@/features/safety/SafetyCenterPage';
+import { UsageNotificationsPage } from '@/features/notifications/UsageNotificationsPage';
 import { MonitoringCenterPage } from '@/pages/MonitoringCenterPage';
 import { CredentialCenterPage } from '@/pages/CredentialCenterPage';
 import { PluginResourcePage } from '@/features/plugins/PluginResourcePage';
@@ -36,6 +37,7 @@ const createMainRoutes = (supportsPlugin: boolean) => [
   ...(supportsPlugin
     ? [
         { path: '/safety', element: <SafetyCenterPage /> },
+        { path: '/usage-notifications', element: <UsageNotificationsPage /> },
         { path: '/plugin-pages/:pluginId/:menuIndex', element: <PluginResourcePage /> },
         { path: '/plugins', element: <PluginsPage /> },
         { path: '/plugin-store', element: <PluginStorePage /> },

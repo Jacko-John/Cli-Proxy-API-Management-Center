@@ -1,8 +1,12 @@
+import { notificationTranslations } from './notificationTranslations';
+
 type TranslationRecord = Readonly<Record<string, unknown>>;
 
 export const forkTranslations = {
   'zh-CN': {
+    usage_notifications: notificationTranslations['zh-CN'],
     nav: {
+      usage_notifications: '用量通知',
       monitoring_center: '监控中心',
       credential_center: '凭证中心',
       safety_center: '安全中心',
@@ -355,7 +359,9 @@ export const forkTranslations = {
     },
   },
   'zh-TW': {
+    usage_notifications: notificationTranslations['zh-TW'],
     nav: {
+      usage_notifications: '用量通知',
       monitoring_center: '監控中心',
       credential_center: '憑證中心',
       safety_center: '安全中心',
@@ -677,7 +683,9 @@ export const forkTranslations = {
     },
   },
   en: {
+    usage_notifications: notificationTranslations.en,
     nav: {
+      usage_notifications: 'Usage notifications',
       monitoring_center: 'Monitoring Center',
       credential_center: 'Credential Center',
       safety_center: 'Safety Center',
@@ -1043,7 +1051,9 @@ export const forkTranslations = {
     },
   },
   ru: {
+    usage_notifications: notificationTranslations.ru,
     nav: {
+      usage_notifications: 'Уведомления об использовании',
       monitoring_center: 'Центр мониторинга',
       credential_center: 'Центр ключей',
       safety_center: 'Центр безопасности',

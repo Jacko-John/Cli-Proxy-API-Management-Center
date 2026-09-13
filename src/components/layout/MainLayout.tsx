@@ -677,6 +677,12 @@ export function MainLayout() {
                 metaKey: 'nav_meta.safety_center',
                 icon: sidebarIcons.safety,
               },
+              {
+                path: '/usage-notifications',
+                labelKey: 'nav.usage_notifications',
+                metaKey: 'usage_notifications.description',
+                icon: sidebarIcons.logs,
+              },
             ]
           : []),
         {
