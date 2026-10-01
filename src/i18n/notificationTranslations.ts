@@ -2,7 +2,7 @@ const zhCN = {
   title: '用量通知',
   description: '为 API Key 绑定邮箱，按每天或每周计划发送美元用量。',
   rules:
-    '与用量统计共用请求时间分钟桶。改价重算当前周期，删除明细会相应扣减；已封存周期不变，迟到上报不补入旧通知。绑定和计划变更从下一分钟生效，首期不追溯旧用量；补发仅统计仍保留的明细。',
+    '与用量统计共用请求时间分钟桶。改价重算当前周期，删除明细会相应扣减；已封存周期不变，迟到上报不补入旧通知。首次启用从当前周期起点统计，包含已保留的历史用量；暂停恢复、重新绑定和后续计划变更从下一分钟生效。补发仅统计仍保留的明细。',
   schedule: '通知计划',
   smtp: 'QQ 邮箱 SMTP',
   subscriptions: 'Key 邮箱绑定',
@@ -75,7 +75,7 @@ const en = {
   title: 'Usage notifications',
   description: 'Bind email addresses to API keys and send daily or weekly USD usage reports.',
   rules:
-    'Uses the same request-time minute buckets as usage statistics. Price changes recalculate the current cycle; deleting records reduces it. Frozen cycles stay unchanged, including after late reports. Binding and schedule changes take effect next minute, without importing earlier usage. Catch-up reports use only retained records.',
+    'Uses the same request-time minute buckets as usage statistics. Price changes recalculate the current cycle; deleting records reduces it. Frozen cycles stay unchanged, including after late reports. First activation includes retained usage from the start of the current cycle. Resuming, rebinding, and subsequent schedule changes take effect next minute. Catch-up reports use only retained records.',
   schedule: 'Schedule',
   smtp: 'QQ Mail SMTP',
   subscriptions: 'Key email bindings',
@@ -152,7 +152,7 @@ const zhTW = {
   title: '用量通知',
   description: '為 API Key 綁定信箱，按每天或每週計畫傳送美元用量。',
   rules:
-    '與用量統計共用請求時間分鐘桶。改價重算目前週期，刪除明細會相應扣減；已封存週期不變，延遲回報不補入舊通知。綁定和計畫變更從下一分鐘生效，首期不追溯舊用量；補寄僅統計仍保留的明細。',
+    '與用量統計共用請求時間分鐘桶。改價重算目前週期，刪除明細會相應扣減；已封存週期不變，延遲回報不補入舊通知。首次啟用從目前週期起點統計，包含已保留的歷史用量；暫停恢復、重新綁定及後續計畫變更從下一分鐘生效。補寄僅統計仍保留的明細。',
   schedule: '通知計畫',
   smtp: 'QQ 信箱 SMTP',
   subscriptions: 'Key 信箱綁定',
@@ -221,7 +221,7 @@ const ru = {
   description:
     'Привяжите почту к API-ключам для ежедневных или еженедельных отчётов о расходах в USD.',
   rules:
-    'Используются общие минутные агрегаты по времени запроса. Изменение цен пересчитывает текущий период, удаление записей уменьшает его итог. Зафиксированные периоды не меняются, поздние отчёты в них не добавляются. Привязки и расписание действуют со следующей минуты без учёта более ранних запросов. Отчёты за пропущенные периоды учитывают только сохранившиеся записи.',
+    'Используются общие минутные агрегаты по времени запроса. Изменение цен пересчитывает текущий период, удаление записей уменьшает его итог. Зафиксированные периоды не меняются, поздние отчёты в них не добавляются. При первом включении учитываются сохранившиеся запросы с начала текущего периода. Возобновление, повторная привязка и последующие изменения расписания действуют со следующей минуты. Отчёты за пропущенные периоды учитывают только сохранившиеся записи.',
   schedule: 'Расписание',
   smtp: 'SMTP почты QQ',
   subscriptions: 'Привязки почты к ключам',
