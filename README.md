@@ -53,6 +53,7 @@
 
 - `.github/workflows/sync-upstream.yml` 每 6 小时检查一次上游最新的正式 Release，不跟随上游 `main` 的普通提交发布。
 - 工作流合并对应的精确上游 Tag，执行完整测试、ESLint 和生产构建，成功后发布单文件 `management.html`。
+- 测试使用 `bun test --isolate`，每个文件独立运行，避免语言状态和 mock 在文件之间泄漏；本地仍使用 `bun run verify` 完整校验。
 - 补丁 Release 使用 `<上游Tag>-patch.N`，例如 `v1.22.12-patch.1`；同一上游版本默认只发布一次。
 - 可通过 `workflow_dispatch` 指定历史上游 Tag；启用 `force_release` 时会为该上游版本发布下一个 patch 版本。
 - 合并冲突或验证失败时不会推送 `main`，也不会创建 Release。

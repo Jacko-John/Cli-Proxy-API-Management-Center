@@ -23,7 +23,7 @@ describe('usage safety API', () => {
     await usageSafetyApi.getKeys();
 
     expect(request).toEqual({
-      url: '/plugins/usage-statistics/safety/keys',
+      url: '/v0/management/plugins/usage-statistics/safety/keys',
       timeout: 60_000,
     });
   });
@@ -45,7 +45,7 @@ describe('usage safety API', () => {
     await usageSafetyApi.getHistory(query);
 
     expect(request).toEqual({
-      url: '/plugins/usage-statistics/safety/history',
+      url: '/v0/management/plugins/usage-statistics/safety/history',
       data: query,
       timeout: 60_000,
     });
@@ -61,7 +61,7 @@ describe('usage safety API', () => {
     await usageSafetyApi.disableKeys(['client-secret']);
 
     expect(request).toEqual({
-      url: '/plugins/usage-statistics/safety/disabled',
+      url: '/v0/management/plugins/usage-statistics/safety/disabled',
       data: { api_keys: ['client-secret'] },
       timeout: 60_000,
     });
@@ -77,7 +77,7 @@ describe('usage safety API', () => {
     await usageSafetyApi.releaseLimits(['client-secret']);
 
     expect(request).toEqual({
-      url: '/plugins/usage-statistics/safety/limits',
+      url: '/v0/management/plugins/usage-statistics/safety/limits',
       data: { api_keys: ['client-secret'] },
       timeout: 60_000,
     });
@@ -93,7 +93,7 @@ describe('usage safety API', () => {
     await usageSafetyApi.enableKeys(['client-secret']);
 
     expect(request).toEqual({
-      url: '/plugins/usage-statistics/safety/disabled',
+      url: '/v0/management/plugins/usage-statistics/safety/disabled',
       data: { api_keys: ['client-secret'] },
       timeout: 60_000,
     });

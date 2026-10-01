@@ -1,4 +1,4 @@
-import { apiClient } from './client';
+import { usagePluginClient, USAGE_PLUGIN_API_BASE } from './usagePluginClient';
 
 export interface UsageNotificationSettings {
   configured?: boolean;
@@ -48,23 +48,26 @@ export interface UsageNotificationHistory {
   periods: UsageNotificationPeriod[];
 }
 
-const base = '/plugins/usage-statistics/notifications';
+const base = `${USAGE_PLUGIN_API_BASE}/notifications`;
 export const usageNotificationsApi = {
-  settings: () => apiClient.get<UsageNotificationSettings>(`${base}/settings`),
+  settings: () => usagePluginClient.get<UsageNotificationSettings>(`${base}/settings`),
   saveSettings: (settings: UsageNotificationSettings, password: string, clearPassword: boolean) =>
-    apiClient.put<UsageNotificationSettings>(`${base}/settings`, {
+    usagePluginClient.put<UsageNotificationSettings>(`${base}/settings`, {
       ...settings,
       password,
       clear_password: clearPassword,
     }),
   subscriptions: () =>
-    apiClient.get<{ subscriptions: UsageSubscription[] }>(`${base}/subscriptions`),
+    usagePluginClient.get<{ subscriptions: UsageSubscription[] }>(`${base}/subscriptions`),
   saveSubscription: (subscription: UsageSubscription) =>
     subscription.id
-      ? apiClient.patch<{ id: string }>(`${base}/subscriptions`, subscription)
-      : apiClient.post<{ id: string }>(`${base}/subscriptions`, subscription),
-  removeSubscription: (id: string) => apiClient.delete(`${base}/subscriptions`, { data: { id } }),
-  history: (id: string) => apiClient.post<UsageNotificationHistory>(`${base}/history`, { id }),
-  retry: (id: string) => apiClient.post(`${base}/retry`, { id }),
-  testEmail: (email: string) => apiClient.post(`${base}/test-email`, { email }, { timeout: 35000 }),
+      ? usagePluginClient.patch<{ id: string }>(`${base}/subscriptions`, subscription)
+      : usagePluginClient.post<{ id: string }>(`${base}/subscriptions`, subscription),
+  removeSubscription: (id: string) =>
+    usagePluginClient.delete(`${base}/subscriptions`, { data: { id } }),
+  history: (id: string) =>
+    usagePluginClient.post<UsageNotificationHistory>(`${base}/history`, { id }),
+  retry: (id: string) => usagePluginClient.post(`${base}/retry`, { id }),
+  testEmail: (email: string) =>
+    usagePluginClient.post(`${base}/test-email`, { email }, { timeout: 35000 }),
 };

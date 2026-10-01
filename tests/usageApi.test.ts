@@ -35,7 +35,7 @@ describe('usage API', () => {
     await usageApi.getSummary('24h');
 
     expect(request).toEqual({
-      url: '/plugins/usage-statistics/usage',
+      url: '/v0/management/plugins/usage-statistics/usage',
       data: { range: '24h' },
       timeout: 60_000,
     });
@@ -51,7 +51,7 @@ describe('usage API', () => {
     await usageApi.getUsage({ start: '2026-09-01T00:00:00Z' });
 
     expect(request).toEqual({
-      url: '/plugins/usage-statistics/usage',
+      url: '/v0/management/plugins/usage-statistics/usage',
       params: {
         start: '2026-09-01T00:00:00Z',
         limit: 100,
@@ -80,7 +80,7 @@ describe('usage API', () => {
     await usageApi.getCredentialWindows(windows);
 
     expect(request).toEqual({
-      url: '/plugins/usage-statistics/usage/credential-windows',
+      url: '/v0/management/plugins/usage-statistics/usage/credential-windows',
       data: { windows },
       timeout: 60_000,
     });
@@ -102,12 +102,12 @@ describe('usage API', () => {
     expect(requests).toEqual([
       {
         method: 'GET',
-        url: '/plugins/usage-statistics/pricing',
+        url: '/v0/management/plugins/usage-statistics/pricing',
         timeout: 60_000,
       },
       {
         method: 'PUT',
-        url: '/plugins/usage-statistics/pricing',
+        url: '/v0/management/plugins/usage-statistics/pricing',
         data: pricing,
         timeout: 0,
       },
