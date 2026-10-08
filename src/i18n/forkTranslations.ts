@@ -1,3 +1,4 @@
+import type { i18n } from 'i18next';
 import { notificationTranslations } from './notificationTranslations';
 
 type TranslationRecord = Readonly<Record<string, unknown>>;
@@ -1423,7 +1424,7 @@ export const forkTranslations = {
 const isPlainRecord = (value: unknown): value is TranslationRecord =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-export function mergeTranslations(
+function mergeTranslations(
   base: TranslationRecord,
   extra: TranslationRecord
 ): Record<string, unknown> {
@@ -1439,4 +1440,14 @@ export function mergeTranslations(
   });
 
   return result;
+}
+
+export function registerForkTranslations(instance: i18n): void {
+  Object.entries(forkTranslations).forEach(([language, translations]) => {
+    instance.addResourceBundle(
+      language,
+      'translation',
+      mergeTranslations(instance.getResourceBundle(language, 'translation') ?? {}, translations)
+    );
+  });
 }

@@ -6,10 +6,6 @@ import { AuthFilesOAuthExcludedEditPage } from '@/pages/AuthFilesOAuthExcludedEd
 import { AuthFilesOAuthModelAliasEditPage } from '@/pages/AuthFilesOAuthModelAliasEditPage';
 import { OAuthPage } from '@/pages/OAuthPage';
 import { QuotaPage } from '@/features/quota/QuotaPage';
-import { SafetyCenterPage } from '@/features/safety/SafetyCenterPage';
-import { UsageNotificationsPage } from '@/features/notifications/UsageNotificationsPage';
-import { MonitoringCenterPage } from '@/pages/MonitoringCenterPage';
-import { CredentialCenterPage } from '@/pages/CredentialCenterPage';
 import { PluginResourcePage } from '@/features/plugins/PluginResourcePage';
 import { PluginsPage } from '@/features/plugins/PluginsPage';
 import { PluginStorePage } from '@/features/plugins/PluginStorePage';
@@ -17,8 +13,9 @@ import { ConfigPage } from '@/features/config/ConfigPage';
 import { LogsPage } from '@/features/logs/LogsPage';
 import { SystemPage } from '@/pages/SystemPage';
 import { useAuthStore } from '@/stores';
+import { extendForkRoutes } from '@/fork/routes';
 
-const createMainRoutes = (supportsPlugin: boolean) => [
+const createUpstreamMainRoutes = (supportsPlugin: boolean) => [
   { path: '/', element: <DashboardPage /> },
   { path: '/dashboard', element: <DashboardPage /> },
   { path: '/settings', element: <Navigate to="/config" replace /> },
@@ -32,19 +29,14 @@ const createMainRoutes = (supportsPlugin: boolean) => [
   { path: '/auth-files/oauth-model-alias', element: <AuthFilesOAuthModelAliasEditPage /> },
   { path: '/oauth', element: <OAuthPage /> },
   { path: '/quota', element: <QuotaPage /> },
-  { path: '/monitor', element: <MonitoringCenterPage /> },
-  { path: '/credential-center', element: <CredentialCenterPage /> },
   ...(supportsPlugin
     ? [
-        { path: '/safety', element: <SafetyCenterPage /> },
-        { path: '/usage-notifications', element: <UsageNotificationsPage /> },
         { path: '/plugin-pages/:pluginId/:menuIndex', element: <PluginResourcePage /> },
         { path: '/plugins', element: <PluginsPage /> },
         { path: '/plugin-store', element: <PluginStorePage /> },
         { path: '/plugins/*', element: <Navigate to="/plugins" replace /> },
       ]
     : [
-        { path: '/safety', element: <Navigate to="/" replace /> },
         { path: '/plugin-pages/*', element: <Navigate to="/" replace /> },
         { path: '/plugins/*', element: <Navigate to="/" replace /> },
         { path: '/plugin-store', element: <Navigate to="/" replace /> },
@@ -54,6 +46,8 @@ const createMainRoutes = (supportsPlugin: boolean) => [
   { path: '/system', element: <SystemPage /> },
   { path: '*', element: <Navigate to="/" replace /> },
 ];
+const createMainRoutes = (supportsPlugin: boolean) =>
+  extendForkRoutes(createUpstreamMainRoutes(supportsPlugin), supportsPlugin);
 
 export function MainRoutes({ location }: { location?: Location }) {
   const supportsPlugin = useAuthStore((state) => state.supportsPlugin);

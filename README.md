@@ -53,10 +53,14 @@
 
 - `.github/workflows/sync-upstream.yml` 每 6 小时检查一次上游最新的正式 Release，不跟随上游 `main` 的普通提交发布。
 - 工作流合并对应的精确上游 Tag，执行完整测试、ESLint 和生产构建，成功后发布单文件 `management.html`。
+- 路由、侧栏和翻译等 fork 扩展独立维护；`scripts/upstream/source-patches.ts` 定义源码接入补丁，按 TypeScript 语法节点重新应用到每次发布的上游源码，不依赖行号或相邻代码。上游新增语言、路由、菜单及导出会保留。
+- `.github/upstream-sync.json` 记录精确的上游基线；同步前校验接入文件的 fork 改动已完整纳入补丁，遗漏的改动会报错，避免被覆盖。维护新的接入点后，运行 `bun scripts/apply-fork-patches.ts` 重新生成接入文件。
+- JSON 配置按键进行三方合并；Bun 锁文件采用上游更新与 fork 增量，再由 Bun 重新解析和校验。两边对同一个配置值的不同修改需要审查，不会盲目覆盖。
+- fork 文案维护在 `forkTranslations.ts` 及功能自己的翻译模块；上游语言包每次采用精确 Tag 的原始内容，再统一补齐缺失或无效文案。上游补上正式翻译后自动替换回退内容，新增和删除语言也自动跟随。
 - 测试使用 `bun test --isolate`，每个文件独立运行，避免语言状态和 mock 在文件之间泄漏；本地仍使用 `bun run verify` 完整校验。
 - 补丁 Release 使用 `<上游Tag>-patch.N`，例如 `v1.22.12-patch.1`；同一上游版本默认只发布一次。
-- 可通过 `workflow_dispatch` 指定历史上游 Tag；启用 `force_release` 时会为该上游版本发布下一个 patch 版本。
-- 合并冲突或验证失败时不会推送 `main`，也不会创建 Release。
+- 可通过 `workflow_dispatch` 指定正式上游 Tag；同步拒绝早于当前基线的版本。启用 `force_release` 时为相同上游版本发布下一个 patch 版本；重新执行源码同步不会重复叠加补丁。
+- 验证通过后才提交和推送 `main` 并发布；接入接口变更、业务冲突或验证失败时，Action 保留日志、冲突路径和候选源码补丁供审查。
 
 ## 使用方法
 

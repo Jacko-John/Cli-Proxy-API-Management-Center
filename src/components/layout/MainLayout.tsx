@@ -29,13 +29,8 @@ import {
   IconSidebarQuota,
   IconSidebarStore,
   IconSidebarSystem,
-  IconShield,
   IconChevronDown,
 } from '@/components/ui/icons';
-import {
-  IconSidebarCredentialCenter,
-  IconSidebarMonitoring,
-} from '@/components/layout/forkSidebarIcons';
 import { INLINE_LOGO_JPEG } from '@/assets/logoInline';
 import {
   useAuthStore,
@@ -57,6 +52,7 @@ import { LANGUAGE_LABEL_KEYS, LANGUAGE_ORDER } from '@/utils/constants';
 import { isSupportedLanguage } from '@/utils/language';
 import { getSidebarShortcutLabel, isSidebarToggleShortcut } from '@/utils/sidebarShortcut';
 import type { Theme } from '@/types';
+import { extendForkSidebar, isUsagePluginAvailable } from '@/fork/sidebar';
 
 const sidebarIcons: Record<string, ReactNode> = {
   dashboard: <IconSidebarDashboard size={18} />,
@@ -65,9 +61,6 @@ const sidebarIcons: Record<string, ReactNode> = {
   authFiles: <IconSidebarAuthFiles size={18} />,
   oauth: <IconSidebarOauth size={18} />,
   quota: <IconSidebarQuota size={18} />,
-  monitoring: <IconSidebarMonitoring size={18} />,
-  safety: <IconShield size={18} />,
-  credentialCenter: <IconSidebarCredentialCenter size={18} />,
   plugins: <IconSidebarPlugins size={18} />,
   pluginStore: <IconSidebarStore size={18} />,
   config: <IconSidebarConfig size={18} />,
@@ -101,7 +94,7 @@ type SidebarNavItem = SidebarNavLinkItem | SidebarNavDrawerItem;
 const NAV_TOOLTIP_ID = 'sidebar-nav-tooltip';
 const NAV_TOOLTIP_VIEWPORT_MARGIN = 8;
 
-interface SidebarNavGroup {
+export interface SidebarNavGroup {
   id: string;
   labelKey: string;
   items: SidebarNavItem[];
@@ -503,12 +496,7 @@ export function MainLayout() {
     try {
       const plugins = await pluginsApi.list();
       setPluginResources(collectPluginResourceEntries(plugins.plugins));
-      setSafetyPluginAvailable(
-        plugins.plugins.some(
-          (plugin) =>
-            plugin.id === 'usage-statistics' && plugin.registered && plugin.effectiveEnabled
-        )
-      );
+      setSafetyPluginAvailable(isUsagePluginAvailable(plugins.plugins));
     } catch {
       setPluginResources([]);
       setSafetyPluginAvailable(false);
@@ -609,7 +597,7 @@ export function MainLayout() {
     icon: sidebarIcons.quickStart,
   };
 
-  const navGroups: SidebarNavGroup[] = [
+  const upstreamNavGroups: SidebarNavGroup[] = [
     {
       id: 'operate',
       labelKey: 'nav_groups.operate',
@@ -664,28 +652,6 @@ export function MainLayout() {
           icon: sidebarIcons.quota,
         },
         {
-          path: '/monitor',
-          labelKey: 'nav.monitoring_center',
-          metaKey: 'nav_meta.monitoring_center',
-          icon: sidebarIcons.monitoring,
-        },
-        ...(safetyPluginAvailable
-          ? [
-              {
-                path: '/safety',
-                labelKey: 'nav.safety_center',
-                metaKey: 'nav_meta.safety_center',
-                icon: sidebarIcons.safety,
-              },
-              {
-                path: '/usage-notifications',
-                labelKey: 'nav.usage_notifications',
-                metaKey: 'usage_notifications.description',
-                icon: sidebarIcons.logs,
-              },
-            ]
-          : []),
-        {
           path: '/logs',
           labelKey: 'nav.logs',
           metaKey: 'nav_meta.logs',
@@ -697,12 +663,6 @@ export function MainLayout() {
       id: 'control',
       labelKey: 'nav_groups.control',
       items: [
-        {
-          path: '/credential-center',
-          labelKey: 'nav.credential_center',
-          metaKey: 'nav_meta.credential_center',
-          icon: sidebarIcons.credentialCenter,
-        },
         {
           path: '/config',
           labelKey: 'nav.config_management',
@@ -742,15 +702,8 @@ export function MainLayout() {
           },
         ]
       : []),
-  ]
-    // Fork: hide the "Quick Start" entry from the sidebar while keeping the
-    // upstream route/page logic intact (see quickStartNavItem + /quick-start route).
-    .map((group) => ({
-      ...group,
-      items: group.items.filter(
-        (item) => item.kind === 'drawer' || item.path !== quickStartNavItem.path
-      ),
-    }));
+  ];
+  const navGroups = extendForkSidebar(upstreamNavGroups, safetyPluginAvailable);
   const navItems = navGroups.flatMap((group) => flattenNavItems(group.items));
   const navOrder = navItems.map((item) => item.path);
   const getRouteOrder = (pathname: string) => {

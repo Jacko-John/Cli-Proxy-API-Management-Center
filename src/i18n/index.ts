@@ -8,15 +8,15 @@ import zhCN from './locales/zh-CN.json';
 import zhTW from './locales/zh-TW.json';
 import en from './locales/en.json';
 import ru from './locales/ru.json';
-import { forkTranslations, mergeTranslations } from './forkTranslations';
 import { getInitialLanguage } from '@/utils/language';
+import { registerForkTranslations } from './forkTranslations';
 
 i18n.use(initReactI18next).init({
   resources: {
-    'zh-CN': { translation: mergeTranslations(zhCN, forkTranslations['zh-CN']) },
-    'zh-TW': { translation: mergeTranslations(zhTW, forkTranslations['zh-TW']) },
-    en: { translation: mergeTranslations(en, forkTranslations.en) },
-    ru: { translation: mergeTranslations(ru, forkTranslations.ru) }
+    'zh-CN': { translation: zhCN },
+    'zh-TW': { translation: zhTW },
+    en: { translation: en },
+    ru: { translation: ru },
   },
   lng: getInitialLanguage(),
   fallbackLng: 'zh-CN',
@@ -27,5 +27,7 @@ i18n.use(initReactI18next).init({
     useSuspense: false,
   },
 });
+
+registerForkTranslations(i18n);
 
 export default i18n;

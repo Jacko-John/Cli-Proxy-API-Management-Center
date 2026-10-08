@@ -109,38 +109,6 @@ jobs:
             git remote set-url upstream "https://github.com/${UPSTREAM_REPOSITORY}.git"
           git fetch --no-tags upstream "refs/tags/${UPSTREAM_TAG}:refs/tags/${UPSTREAM_TAG}"
 
-      - name: Merge upstream release
-        if: steps.release.outputs.skip != 'true'
-        env:
-          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
-        run: |
-          set -euo pipefail
-          before_sha="$(git rev-parse HEAD)"
-          merge_status=0
-          git merge --no-ff --no-commit "${UPSTREAM_TAG}" || merge_status=$?
-
-          if ! git rev-parse -q --verify MERGE_HEAD >/dev/null; then
-            exit "${merge_status}"
-          fi
-
-          git restore --source="${before_sha}" --staged --worktree -- README.md
-          if git ls-files --error-unmatch CLAUDE.md >/dev/null 2>&1; then
-            if git cat-file -e "${before_sha}:CLAUDE.md" 2>/dev/null; then
-              git restore --source="${before_sha}" --staged --worktree -- CLAUDE.md
-            else
-              git rm -f --ignore-unmatch CLAUDE.md
-            fi
-          fi
-
-          conflicts="$(git diff --name-only --diff-filter=U)"
-          if [ -n "${conflicts}" ]; then
-            echo "Merge conflicts require manual resolution:"
-            printf '%s\n' "${conflicts}"
-            exit 1
-          fi
-
-          git commit -m "Merge upstream release ${UPSTREAM_TAG}"
-
       - name: Setup Node.js
         if: steps.release.outputs.skip != 'true'
         uses: actions/setup-node@v4
@@ -153,15 +121,41 @@ jobs:
         with:
           bun-version: '1.3.14'
 
-      - name: Install dependencies
+      - name: Install fork patch tooling
         if: steps.release.outputs.skip != 'true'
         run: bun install --frozen-lockfile
+
+      - name: Prepare upstream source and replay fork patches
+        if: steps.release.outputs.skip != 'true'
+        env:
+          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/upstream-sync"
+          bun scripts/sync-upstream.ts "${UPSTREAM_TAG}" 2>&1 | \
+            tee "${RUNNER_TEMP}/upstream-sync/prepare.log"
+
+      - name: Resolve and install merged dependencies
+        if: steps.release.outputs.skip != 'true'
+        run: |
+          bun install --lockfile-only
+          bun install --frozen-lockfile
+          git add -- bun.lock
 
       - name: Verify and build patched release
         if: steps.release.outputs.skip != 'true'
         env:
           VERSION: ${{ steps.release.outputs.patch_tag }}
         run: bun run verify
+
+      - name: Commit verified upstream source
+        if: steps.release.outputs.skip != 'true'
+        env:
+          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+        run: |
+          if git rev-parse -q --verify MERGE_HEAD >/dev/null || ! git diff --cached --quiet; then
+            git commit -m "Merge upstream release ${UPSTREAM_TAG}"
+          fi
 
       - name: Prepare release asset and notes
         if: steps.release.outputs.skip != 'true'
@@ -199,3 +193,19 @@ jobs:
       - name: Report existing patched release
         if: steps.release.outputs.skip == 'true'
         run: echo "${{ steps.release.outputs.patch_tag }} already exists; nothing to publish."
+
+      - name: Capture failed synchronization
+        if: failure()
+        run: |
+          mkdir -p "${RUNNER_TEMP}/upstream-sync"
+          git status --short > "${RUNNER_TEMP}/upstream-sync/status.txt"
+          git diff --binary HEAD > "${RUNNER_TEMP}/upstream-sync/candidate.patch"
+          git diff --name-only --diff-filter=U > "${RUNNER_TEMP}/upstream-sync/conflicts.txt"
+
+      - name: Upload synchronization diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-sync-diagnostics
+          path: ${{ runner.temp }}/upstream-sync
+          retention-days: 7
