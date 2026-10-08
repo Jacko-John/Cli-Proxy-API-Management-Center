@@ -431,11 +431,15 @@
     "quota_refresh_single": "重新整理配額",
     "quota_refresh_hint": "僅重新整理該驗證檔案的配額",
     "quota_refresh_success": "已重新整理「{{name}}」的配額",
-    "quota_refresh_failed": "重新整理「{{name}}」的配額失敗：{{message}}"
+    "quota_refresh_failed": "重新整理「{{name}}」的配額失敗：{{message}}",
+    "cooldown_models_one": "{{count}} 個模型冷卻",
+    "cooldown_models_other": "{{count}} 個模型冷卻",
+    "cooldown_credential_and_models_one": "憑證及 {{count}} 個模型冷卻",
+    "cooldown_credential_and_models_other": "憑證及 {{count}} 個模型冷卻"
   },
   "antigravity_subscription": {
     "plan_unknown": "未知",
-    "plan_free": "免費版",
+    "plan_free": "Free",
     "plan_pro": "Pro",
     "plan_ultra": "Ultra",
     "plan_ultra_lite": "Ultra Lite"
@@ -488,15 +492,16 @@
     "seven_day_cowork": "7 天 Cowork",
     "iguana_necktie": "Iguana Necktie",
     "seven_day_fable": "7 天 Fable 5",
+    "cloud_session_credits": "雲端工作階段額度",
     "extra_usage_label": "額外用量",
     "plan_label": "方案",
     "plan_unknown": "未知",
-    "plan_free": "免費版",
-    "plan_pro": "專業版",
+    "plan_free": "Free",
+    "plan_pro": "Pro",
     "plan_max": "Max",
     "plan_max5": "Max 5x",
     "plan_max20": "Max 20x",
-    "plan_team": "團隊版"
+    "plan_team": "Team"
   },
   "codex_quota": {
     "title": "Codex 配額",
@@ -533,6 +538,8 @@
     "reset_confirm_title": "重置 Codex 配額",
     "reset_confirm_message": "將消耗 1 次主動重置次數來重置「{{name}}」的 Codex 配額。是否繼續？",
     "reset_confirm_button": "確認重置",
+    "reset_not_confirmed": "尚未確認額度重置成功，請重新整理額度後再決定是否重試。",
+    "reset_cooldown_failed": "額度已重置，但代理冷卻清除失敗。請在原連線的認證檔案頁面使用「清除冷卻」，不要再次消耗重置卡。",
     "reset_success": "已重置「{{name}}」的 Codex 配額",
     "reset_failed": "重置「{{name}}」的 Codex 配額失敗：{{message}}",
     "plan_plus": "Plus",
@@ -621,6 +628,7 @@
     "usage_unavailable": "xAI 用量暫不可用",
     "reset_at": "重置 {{time}}",
     "product_usage": "{{product}} 使用",
+    "usage_breakdown": "用量明細（共用配額）",
     "plan_label": "方案",
     "resets_label": "重置",
     "prepaid": "預付",
@@ -945,7 +953,9 @@
     "iflow_cookie_result_expired": "到期時間",
     "iflow_cookie_result_path": "儲存路徑",
     "iflow_cookie_result_type": "類型",
-    "remote_access_disabled": "遠端存取不支援此登入方式，請從本地（localhost）存取"
+    "remote_access_disabled": "遠端存取不支援此登入方式，請從本地（localhost）存取",
+    "login_another_account": "Log in another account",
+    "view_auth_files": "View auth files"
   },
   "stats": {
     "success": "成功",
@@ -1284,6 +1294,8 @@
           "signature_title": "簽章驗證"
         },
         "server": {
+          "github_token": "全域 GitHub 權杖",
+          "github_token_hint": "用於面板更新、外掛下載等伺服器端 GitHub 請求。優先於 GITHUB_TOKEN；留空時使用環境變數憑證，未設定憑證則匿名請求。外掛商店符合的驗證規則優先。",
           "host": "主機位址",
           "port": "連接埠"
         },
@@ -1829,7 +1841,9 @@
     "chinese": "簡體中文",
     "chinese_tw": "繁體中文（台灣）",
     "english": "英文",
-    "russian": "俄文"
+    "russian": "俄文",
+    "vietnamese": "Tiếng Việt",
+    "korean": "한국어"
   },
   "theme": {
     "switch": "主題",
@@ -2106,7 +2120,7 @@
       "disabledHint": "停用後不會被閘道使用",
       "websockets": "啟用 WebSockets",
       "testModel": "測試模型",
-      "testModelClaudeHint": "僅用於連通性測試,不會被儲存",
+      "testModelHint": "僅用於連通性測試,不會被儲存",
       "testModelAutoWith": "自動 · {{name}}",
       "testModelAutoEmpty": "自動(尚未新增模型)",
       "testModelCustom": "{{name}}(自訂)",
@@ -2225,6 +2239,9 @@
     }
   },
   "claude_reset": {
+    "expiry_title": "主動重置過期時間（{{timezone}}）",
+    "grant_number": "第 {{index}} 批",
+    "expiry_unknown": "到期時間未知",
     "retry_confirm": "使用原請求 ID 重試「{{name}}」結果未知的重置？可能已消耗一次重置。請在 10 分鐘內重試；請勿重新載入頁面或在其他分頁發起新請求。",
     "remaining": "剩餘重置次數",
     "title": "儲備重置次數",
