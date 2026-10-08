@@ -37,10 +37,20 @@ export interface UsageNotificationPeriod {
   tokens: number;
   cost: number;
   unpriced_requests: number;
+  details?: UsageNotificationDetail[] | null;
   attempts: number;
   retry_at: number;
   error: string;
   skipped_cycles: number;
+}
+
+export interface UsageNotificationDetail {
+  model: string;
+  service_tier: string;
+  requests: number;
+  tokens: number;
+  cost: number;
+  unpriced_requests: number;
 }
 
 export interface UsageNotificationHistory {

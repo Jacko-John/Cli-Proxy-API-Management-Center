@@ -12,10 +12,13 @@ export const notificationTimezone = (
 export const maskNotificationKey = (key: string): string =>
   key.length > 8 ? `${key.slice(0, 4)}…${key.slice(-4)}` : '••••';
 
-export const notificationCost = (period: UsageNotificationPeriod): string =>
+export const notificationCost = (
+  period: Pick<UsageNotificationPeriod, 'requests' | 'unpriced_requests' | 'cost'>,
+  precision = 4
+): string =>
   period.requests > 0 && period.unpriced_requests === period.requests
     ? '—'
-    : `$${period.cost.toFixed(4)}`;
+    : `$${period.cost.toFixed(precision)}`;
 
 export const notificationTime = (unix: number, timezone: string, locale: string): string => {
   if (unix <= 0) return '—';

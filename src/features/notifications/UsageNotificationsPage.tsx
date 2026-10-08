@@ -19,10 +19,10 @@ import { getErrorMessage } from '@/utils/helpers';
 import {
   emptySubscription,
   maskNotificationKey,
-  notificationCost,
   notificationTime,
   notificationTimezone,
 } from './logic';
+import { NotificationPeriods } from './NotificationPeriods';
 import styles from './UsageNotificationsPage.module.scss';
 
 export function UsageNotificationsPage() {
@@ -149,73 +149,11 @@ export function UsageNotificationsPage() {
   const confirm = (title: string, message: string, fn: () => Promise<void>) =>
     showConfirmation({ title, message, onConfirm: () => action(fn) });
   const time = (unix: number, zone: string) => notificationTime(unix, zone, i18n.language);
-  const periods = (items: UsageNotificationPeriod[]) =>
-    !items.length ? (
-      <p className={styles.muted}>{text('empty')}</p>
-    ) : (
-      <div className={styles.tableScroll}>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              {['period', 'cost', 'requests', 'tokens', 'status', 'actions'].map((key) => (
-                <th key={key}>{text(key)}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((p) => (
-              <tr key={p.id}>
-                <td data-label={text('period')}>
-                  <div>
-                    {time(p.start, p.timezone)} — {time(p.end, p.timezone)}
-                  </div>
-                  <small>
-                    {p.timezone} · {p.email}
-                  </small>
-                  {p.partial && <div>{text('partial')}</div>}
-                </td>
-                <td data-label={text('cost')}>
-                  {notificationCost(p)}
-                  {p.unpriced_requests > 0 && (
-                    <small>
-                      {t('usage_notifications.unpriced', { count: p.unpriced_requests })}
-                    </small>
-                  )}
-                </td>
-                <td data-label={text('requests')}>{p.requests.toLocaleString()}</td>
-                <td data-label={text('tokens')}>{p.tokens.toLocaleString()}</td>
-                <td data-label={text('status')}>
-                  {text(`states.${p.status}`)}
-                  {p.error && <small>{p.error}</small>}
-                  {p.skipped_cycles > 0 && (
-                    <small>
-                      {t('usage_notifications.skipped_cycles', { count: p.skipped_cycles })}
-                    </small>
-                  )}
-                </td>
-                <td data-label={text('actions')}>
-                  {(p.status === 'failed' || p.status === 'unknown') && (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={busy}
-                      onClick={() =>
-                        confirm(text('retry'), text('retry_confirm'), async () => {
-                          await usageNotificationsApi.retry(p.id);
-                          refreshHistory();
-                        })
-                      }
-                    >
-                      {text('retry')}
-                    </Button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
+  const retryPeriod = (period: UsageNotificationPeriod) =>
+    confirm(text('retry'), text('retry_confirm'), async () => {
+      await usageNotificationsApi.retry(period.id);
+      refreshHistory();
+    });
 
   return (
     <div className={styles.page}>
@@ -446,8 +384,20 @@ export function UsageNotificationsPage() {
                 <p role="status">{text('loading')}</p>
               ) : (
                 <>
-                  <Card title={text('current')}>{periods(history.current)}</Card>
-                  <Card title={text('history')}>{periods(history.periods)}</Card>
+                  <Card title={text('current')}>
+                    <NotificationPeriods
+                      items={history.current}
+                      busy={busy}
+                      onRetry={retryPeriod}
+                    />
+                  </Card>
+                  <Card title={text('history')}>
+                    <NotificationPeriods
+                      items={history.periods}
+                      busy={busy}
+                      onRetry={retryPeriod}
+                    />
+                  </Card>
                 </>
               )}
             </section>

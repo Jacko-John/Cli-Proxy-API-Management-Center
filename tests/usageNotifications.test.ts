@@ -1,4 +1,11 @@
 import { describe, expect, test } from 'bun:test';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { createInstance } from 'i18next';
+import { I18nextProvider } from 'react-i18next';
+import { NotificationUsageDetails } from '../src/features/notifications/NotificationUsageDetails';
+import { NotificationPeriods } from '../src/features/notifications/NotificationPeriods';
+import { notificationTranslations } from '../src/i18n/notificationTranslations';
 import {
   emptySubscription,
   maskNotificationKey,
@@ -63,6 +70,9 @@ describe('usage notification display', () => {
     expect(notificationCost(period)).toBe('$12.3457');
     expect(notificationCost({ ...period, unpriced_requests: 2 })).toBe('—');
     expect(notificationCost({ ...period, requests: 0, cost: 0 })).toBe('$0.0000');
+    expect(notificationCost({ requests: 1, cost: 0.000123, unpriced_requests: 0 }, 6)).toBe(
+      '$0.000123'
+    );
   });
   test('formats minute precision using the cycle timezone', () => {
     expect(notificationTime(1789128000, 'Asia/Shanghai', 'zh-CN')).toContain('20:00');
@@ -75,5 +85,143 @@ describe('usage notification display', () => {
     first.email = 'one@example.com';
     expect(emptySubscription().email).toBe('');
     expect(emptySubscription().enabled).toBe(true);
+  });
+});
+
+const details: NonNullable<UsageNotificationPeriod['details']> = [
+  {
+    model: 'model-a',
+    service_tier: 'default',
+    requests: 2,
+    tokens: 1234,
+    cost: 1.2,
+    unpriced_requests: 0,
+  },
+  {
+    model: 'model-a',
+    service_tier: 'priority',
+    requests: 1,
+    tokens: 45,
+    cost: 0.000123,
+    unpriced_requests: 0,
+  },
+  { model: 'free-model', service_tier: '', requests: 1, tokens: 10, cost: 0, unpriced_requests: 0 },
+  {
+    model: 'unpriced-model',
+    service_tier: 'flex',
+    requests: 1,
+    tokens: 20,
+    cost: 0,
+    unpriced_requests: 1,
+  },
+];
+
+async function renderNotification(element: ReturnType<typeof createElement>, locale = 'en') {
+  const i18n = createInstance();
+  await i18n.init({
+    lng: locale,
+    resources: Object.fromEntries(
+      Object.entries(notificationTranslations).map(([language, usage_notifications]) => [
+        language,
+        { translation: { usage_notifications } },
+      ])
+    ),
+  });
+  return renderToStaticMarkup(createElement(I18nextProvider, { i18n }, element));
+}
+
+describe('usage notification breakdown', () => {
+  test('shows separate tier costs, small charges, unpriced usage and unreported tiers', async () => {
+    const markup = await renderNotification(
+      createElement(NotificationUsageDetails, { period: { ...period, details, status: 'open' } })
+    );
+    for (const value of [
+      'Model',
+      'Service tier',
+      'Cost (USD)',
+      'default',
+      'priority',
+      '$1.200000',
+      '$0.000123',
+      'Not reported',
+      '1 unpriced requests; cost is incomplete',
+      '1,234',
+    ]) {
+      expect(markup).toContain(value);
+    }
+    expect(markup.match(/>model-a</g)).toHaveLength(2);
+    expect(markup.match(/\$0\.000000/g)).toHaveLength(1);
+    expect(markup).toMatch(/<details[^>]* open=""/);
+    expect(markup).toContain('scope="col"');
+    expect(markup).toContain('aria-label="Usage details"');
+  });
+
+  test('distinguishes legacy snapshots from a recorded empty cycle', async () => {
+    for (const value of [undefined, null]) {
+      const markup = await renderNotification(
+        createElement(NotificationUsageDetails, { period: { ...period, details: value } })
+      );
+      expect(markup).toContain('No breakdown was saved for this cycle');
+      expect(markup).not.toContain('No usage in this cycle');
+      expect(markup).not.toMatch(/<details[^>]* open=/);
+    }
+    const empty = await renderNotification(
+      createElement(NotificationUsageDetails, { period: { ...period, details: [] } })
+    );
+    expect(empty).toContain('No usage in this cycle');
+    expect(empty).not.toContain('No breakdown was saved');
+  });
+
+  test('escapes model and tier text in the rendered breakdown', async () => {
+    const markup = await renderNotification(
+      createElement(NotificationUsageDetails, {
+        period: {
+          ...period,
+          details: [
+            { ...details[0], model: '<script>model</script>', service_tier: '<img src=x>' },
+          ],
+        },
+      })
+    );
+    expect(markup).toContain('&lt;script&gt;model&lt;/script&gt;');
+    expect(markup).toContain('&lt;img src=x&gt;');
+    expect(markup).not.toContain('<script>');
+    expect(markup).not.toContain('<img');
+  });
+
+  test('localizes detail labels and notices in all four languages', async () => {
+    for (const [locale, labels] of Object.entries(notificationTranslations)) {
+      const markup = await renderNotification(
+        createElement(NotificationUsageDetails, { period: { ...period, details } }),
+        locale
+      );
+      for (const label of [
+        labels.details,
+        labels.model,
+        labels.service_tier,
+        labels.tier_unreported,
+      ]) {
+        expect(markup).toContain(label);
+      }
+      expect(markup).not.toContain('usage_notifications.');
+    }
+  });
+
+  test('keeps breakdowns attached to their cycles and preserves retry controls', async () => {
+    const markup = await renderNotification(
+      createElement(NotificationPeriods, {
+        items: [
+          { ...period, details, status: 'failed' },
+          { ...period, id: '2', details: [] },
+        ],
+        busy: true,
+        onRetry: () => {},
+      })
+    );
+    expect(markup.match(/<details\b/g)).toHaveLength(2);
+    expect(markup).toContain('colSpan="6"');
+    expect(markup.match(/<button /g)).toHaveLength(1);
+    expect(markup).toContain('disabled=""');
+    expect(markup).toContain('Retry');
   });
 });
