@@ -2,7 +2,7 @@ import axios, { type AxiosRequestConfig, type AxiosRequestTransformer } from 'ax
 import { normalizeApiBase } from '@/utils/connection';
 import { apiClient } from './client';
 
-export const USAGE_PLUGIN_API_BASE = '/v0/management/plugins/usage-statistics';
+export { USAGE_PLUGIN_API_BASE } from '@/fork/usagePlugin';
 
 // Run after the shared client's interceptor sets its v8 base, before Axios sends the request.
 // Keep authentication, error handling and response events in the shared client.

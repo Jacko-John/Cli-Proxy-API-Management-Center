@@ -8,7 +8,11 @@
 > 兼容说明：官方 CPA 已移除使用统计 API。
 >
 > 如需使用本 fork 的「监控中心」完整功能，必须搭配本 fork 适配的插件：
-> https://github.com/Fwindy/cpa-usage-statistics
+> https://github.com/Jacko-John/cpa-usage-statistics
+>
+> 从 `v1.26.1-patch.2` 起，配套独立插件 ID 为 `jacko-usage-statistics`，后端版本从 `v0.5.0` 起。新面板使用该 ID 的接口；旧 `usage-statistics` 插件请按后端 README 迁移，继续使用原数据目录，并停用旧实例。
+
+插件商店自有源：`https://raw.githubusercontent.com/Jacko-John/cpa-usage-statistics/main/registry.json`。宿主配置的 `remote-management.panel-github-repository` 请指向 `https://github.com/Jacko-John/Cli-Proxy-API-Management-Center`，自动更新将下载本仓库发布的 `management.html`。
 
 本 README 只记录 **本 fork 相对上游新增/增强的功能点**。
 

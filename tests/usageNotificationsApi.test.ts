@@ -167,7 +167,7 @@ describe('usage notification API', () => {
     expect(requests).toEqual([
       {
         method: entry.method,
-        url: `/v0/management/plugins/usage-statistics/notifications/${entry.path}`,
+        url: `/v0/management/plugins/jacko-usage-statistics/notifications/${entry.path}`,
         data: entry.data,
         timeout: entry.timeout,
       },

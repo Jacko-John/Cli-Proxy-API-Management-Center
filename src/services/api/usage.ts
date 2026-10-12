@@ -26,7 +26,7 @@ import type {
 const USAGE_TIMEOUT_MS = 60 * 1000;
 const PRICING_UPDATE_TIMEOUT_MS = 0;
 
-// usage-statistics 插件端点（官方 CPA 已移除内建 usage API，改由插件提供）。
+// Jacko 用量插件端点（官方 CPA 已移除内建 usage API，改由插件提供）。
 const USAGE_ENDPOINT = `${USAGE_PLUGIN_API_BASE}/usage`;
 const PRICING_ENDPOINT = `${USAGE_PLUGIN_API_BASE}/pricing`;
 const SAFETY_ENDPOINT = `${USAGE_PLUGIN_API_BASE}/safety`;

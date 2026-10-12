@@ -7,11 +7,12 @@ import {
 import type { SidebarNavGroup } from '@/components/layout/MainLayout';
 import type { PluginListEntry } from '@/types';
 import { forkPagePaths, forkSidebarGroups } from './navigation';
+import { USAGE_PLUGIN_ID } from './usagePlugin';
 
 /** Only an enabled, registered usage plugin exposes safety and notification navigation. */
 export function isUsagePluginAvailable(plugins: PluginListEntry[]): boolean {
   return plugins.some(
-    (plugin) => plugin.id === 'usage-statistics' && plugin.registered && plugin.effectiveEnabled
+    (plugin) => plugin.id === USAGE_PLUGIN_ID && plugin.registered && plugin.effectiveEnabled
   );
 }
 

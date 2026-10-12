@@ -73,13 +73,14 @@ describe('fork navigation extensions', () => {
 
   test('only exposes the usage plugin when registered and enabled', () => {
     const plugin = {
-      id: 'usage-statistics',
+      id: 'jacko-usage-statistics',
       registered: true,
       effectiveEnabled: true,
     } as PluginListEntry;
     expect(isUsagePluginAvailable([plugin])).toBe(true);
     expect(isUsagePluginAvailable([{ ...plugin, registered: false }])).toBe(false);
     expect(isUsagePluginAvailable([{ ...plugin, effectiveEnabled: false }])).toBe(false);
+    expect(isUsagePluginAvailable([{ ...plugin, id: 'usage-statistics' }])).toBe(false);
     expect(isUsagePluginAvailable([{ ...plugin, id: 'another-plugin' }])).toBe(false);
   });
 });

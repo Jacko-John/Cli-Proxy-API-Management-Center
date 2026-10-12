@@ -4,7 +4,7 @@ import { apiClient } from '../../src/services/api/client';
 import { usagePluginClient } from '../../src/services/api/usagePluginClient';
 
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
-const pluginPath = '/v0/management/plugins/usage-statistics/notifications/subscriptions';
+const pluginPath = '/v0/management/plugins/jacko-usage-statistics/notifications/subscriptions';
 
 afterEach(() => {
   apiClient.setConfig({ apiBase: '', managementKey: '' });
