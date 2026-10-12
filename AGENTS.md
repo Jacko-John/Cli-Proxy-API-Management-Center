@@ -12,6 +12,7 @@ This is a React 19 + TypeScript + Vite management frontend for CLI Proxy API, no
 - `src/App.tsx`: hash-router setup. `src/router/MainRoutes.tsx`: authenticated route table. `ProtectedRoute` and `MainLayout` guard and wrap the authenticated app.
 - `src/assets/`: bundled assets, including provider icons in `icons/`.
 - `src/fork/`: fork integration modules, including routes and sidebar extensions. The integration with upstream-owned source files is defined in `scripts/upstream/source-patches.ts`, applied by syntax rather than line context. Change fork behavior in its own module; when adding a new integration, update the patch definition and run `bun scripts/apply-fork-patches.ts`. Sync checks that all changes to these generated files are represented before regenerating them, so do not add unrelated changes directly to them.
+- Fork extension namespaces are declared in `scripts/upstream/repository.ts`, including `src/features/notifications/` and its API, plugin transport and translation modules. Keep declarations aligned when moving or adding extension roots. Sync checks both the baseline and release tree before merging, rejects file/directory collisions with these namespaces, then restores their exact fork content. Do not hide collisions by forcing one side of the merge.
 - `.github/upstream-sync.json` records the exact upstream baseline. Update it through synchronization, not by hand. The sync Action merges the upstream tag, reapplies the fork integration, merges JSON by key, resolves the generated Bun lockfile, and verifies before committing and publishing. Real code conflicts or ambiguous integration anchors stop publication and produce diagnostics.
 - `scripts/sync-upstream.ts` coordinates the merge. Keep source generation in `scripts/upstream/source-patches.ts`, catalog normalization and ownership checks in `locales.ts`, repository state and fork ownership in `repository.ts`, and JSON/lockfile reconciliation in `data-files.ts`. Both synchronization and development patch generation use the same source generator.
 - `src/i18n/locales/` belongs to upstream. Sync adopts catalogs from the exact release tag and uses English for missing or invalid translations. Keep fork text in `src/i18n/forkTranslations.ts` or feature-owned translation modules registered through it; update `en`, `zh-CN`, `zh-TW`, and `ru`, including accessible labels. Keep the upstream language list unchanged and register fork overlays separately; fallback language is `zh-CN`.
@@ -54,6 +55,11 @@ Use 2-space indentation, semicolons, single quotes, ES5 trailing commas, and 100
 Component files use PascalCase, hooks use `useName`, and API modules use domain names such as `oauth.ts`. SCSS Modules sit beside their page or component as `Name.module.scss`. Vite automatically injects `src/styles/variables.scss` into SCSS; new modules do not need to import it again. Reuse shared components from `src/components/ui/` and existing theme tokens before adding new primitives or hard-coded colors.
 
 Keep user-facing text in i18n. Preserve keyboard interaction, accessible names, focus behavior, and reduced-motion handling when modifying interactive UI.
+
+## Reasoning & Review
+
+- Assess correctness and future compatibility from mechanisms, invariants, ownership boundaries, and external contracts. State the assumptions and failure boundaries behind each conclusion; for upstream synchronization, include path collisions and semantic changes to shared APIs that can preserve types.
+- Passing tests is evidence for the exercised versions and inputs, not proof of general correctness or future upstream compatibility. Do not substitute repeated runs or pass counts for reasoning. Use tests to challenge that reasoning, and distinguish conditional guarantees from observed results.
 
 ## Testing & Verification
 

@@ -66,6 +66,24 @@ const sources: Record<string, string> = {
   'src/types/index.ts': `export * from './config';`,
 };
 
+// Independent fork payloads exercise preservation without deriving fixtures from the ownership list.
+const notificationSources: Record<string, string> = {
+  'src/features/notifications/UsageNotificationsPage.tsx': 'export const page = "notifications";\n',
+  'src/features/notifications/NotificationSMTPSettings.tsx':
+    'export const accounts = "multiple";\n',
+  'src/features/notifications/UsageNotificationsPage.module.scss': '.page { display: grid; }\n',
+  'src/i18n/forkTranslations.ts': 'export const overlay = true;\n',
+  'src/i18n/notificationTranslations.ts': 'export const senderLabel = "Sender";\n',
+  'src/services/api/notifications.ts': 'export const settings = "smtp_profiles";\n',
+  'src/services/api/usagePluginClient.ts': 'export const transport = "plugin";\n',
+};
+
+/** Compare opaque feature content after a merge, independently of the source patch generator. */
+function expectNotificationsPreserved(repository: string): void {
+  for (const [path, source] of Object.entries(notificationSources))
+    expect(read(repository, path)).toBe(source);
+}
+
 /** Make real merge histories in temporary repositories with no dependence on checkout depth. */
 async function fixture(): Promise<string> {
   const repository = mkdtempSync(join(tmpdir(), 'cpa-upstream-sync-'));
@@ -99,6 +117,7 @@ async function fixture(): Promise<string> {
   for (const path of Object.keys(sourcePatches))
     write(repository, path, await patchUpstreamSource(path, sources[path]));
   write(repository, 'src/fork/sentinel.ts', 'export const feature = "preserve me";\n');
+  for (const [path, source] of Object.entries(notificationSources)) write(repository, path, source);
   write(repository, 'README.md', 'Fork documentation\n');
   write(repository, 'options.json', { limit: 1, inherited: true, forkFlag: true });
   git(repository, ['rm', 'redundant.json']);
@@ -267,6 +286,7 @@ describe('fork source synchronization', () => {
       forkFlag: true,
     });
     expect(existsSync(join(repository, 'redundant.json'))).toBe(false);
+    expectNotificationsPreserved(repository);
     commit(repository);
 
     upstreamRelease(repository, 'release-2', () => {
@@ -282,6 +302,7 @@ describe('fork source synchronization', () => {
     expect(json(repository, 'src/i18n/locales/de.json').detail.credits).toBe('Compute credits');
     expect(existsSync(join(repository, 'shared/helper.ts'))).toBe(false);
     expect(existsSync(join(repository, 'shared/renamed.ts'))).toBe(true);
+    expectNotificationsPreserved(repository);
     commit(repository);
 
     upstreamRelease(repository, 'release-3', () => {
@@ -300,6 +321,7 @@ describe('fork source synchronization', () => {
       'export const feature = "preserve me";\n'
     );
     expect(git(repository, ['diff', '--name-only', '--diff-filter=U']).stdout).toBe('');
+    expectNotificationsPreserved(repository);
     commit(repository);
 
     // Simulate a release creation failure after source push: rerunning must leave source unchanged.
@@ -368,6 +390,69 @@ describe('fork source synchronization', () => {
     expect(git(repository, ['diff', '--name-only', '--diff-filter=U']).stdout).toContain(
       'options.json'
     );
+  });
+
+  for (const path of [
+    'src/fork/sentinel.ts',
+    'src/fork/newUpstreamModule.ts',
+    'src/features/notifications/UsageNotificationsPage.tsx',
+    'src/features/notifications/newUpstreamModule.ts',
+    'src/i18n/forkTranslations.ts',
+    'src/i18n/notificationTranslations.ts',
+    'src/services/api/notifications.ts',
+    'src/services/api/usagePluginClient.ts',
+    'src/services/api/notifications.ts/child.ts',
+  ]) {
+    test(`rejects namespace occupation before merging: ${path}`, async () => {
+      const repository = await fixture();
+      const before = git(repository, ['rev-parse', 'HEAD']).stdout;
+      const state = read(repository, '.github/upstream-sync.json');
+      // Identical additions and upstream-only child files need not create a textual Git conflict.
+      const source = existsSync(join(repository, path))
+        ? read(repository, path)
+        : 'export const upstreamOnly = true;\n';
+      upstreamRelease(repository, 'namespace-collision', () => write(repository, path, source));
+
+      await expect(syncUpstream(repository, 'namespace-collision')).rejects.toThrow(
+        'upstream occupies fork extension paths'
+      );
+      expect(git(repository, ['status', '--porcelain']).stdout).toBe('');
+      expect(git(repository, ['rev-parse', 'HEAD']).stdout).toBe(before);
+      expect(
+        git(repository, ['rev-parse', '-q', '--verify', 'MERGE_HEAD'], true).exitCode
+      ).not.toBe(0);
+      expect(read(repository, '.github/upstream-sync.json')).toBe(state);
+    });
+  }
+
+  for (const path of ['src/features', 'src/features/notifications']) {
+    test(`rejects a file obstructing a reserved directory: ${path}`, async () => {
+      const repository = await fixture();
+      upstreamRelease(repository, 'directory-obstruction', () =>
+        write(repository, path, 'upstream file in place of a directory\n')
+      );
+      await expect(syncUpstream(repository, 'directory-obstruction')).rejects.toThrow(
+        'upstream occupies fork extension paths'
+      );
+      expect(git(repository, ['status', '--porcelain']).stdout).toBe('');
+      expectNotificationsPreserved(repository);
+    });
+  }
+
+  test('allows nearby upstream namespaces and preserves notification files', async () => {
+    const repository = await fixture();
+    const additions = [
+      'src/features/notifications-extra/UpstreamPage.tsx',
+      'src/i18n/notificationTranslationsExtra.ts',
+      'src/services/api/notificationsV2.ts',
+    ];
+    upstreamRelease(repository, 'nearby-namespaces', () => {
+      for (const path of additions) write(repository, path, 'export const upstream = true;\n');
+    });
+    await syncUpstream(repository, 'nearby-namespaces');
+    for (const path of additions)
+      expect(read(repository, path)).toBe('export const upstream = true;\n');
+    expectNotificationsPreserved(repository);
   });
 
   test('does not overwrite colliding feature files independently added by both sides', async () => {

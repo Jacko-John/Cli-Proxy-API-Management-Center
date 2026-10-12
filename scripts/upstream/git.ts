@@ -18,9 +18,9 @@ export function blob(repository: string, ref: string, path: string): string | nu
   return git(repository, ['show', object]).stdout;
 }
 
-/** Read every tracked path under a tree directory, including non-JSON assets. */
-export function treePaths(repository: string, ref: string, directory: string): string[] {
-  return git(repository, ['ls-tree', '-r', '--name-only', '-z', ref, '--', directory])
-    .stdout.split('\0')
-    .filter(Boolean);
+/** Read all leaf paths in a tree or directory, including non-JSON assets and symlinks. */
+export function treePaths(repository: string, ref: string, directory?: string): string[] {
+  const args = ['ls-tree', '-r', '--name-only', '-z', ref];
+  if (directory !== undefined) args.push('--', directory);
+  return git(repository, args).stdout.split('\0').filter(Boolean);
 }

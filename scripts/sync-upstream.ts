@@ -8,7 +8,12 @@ import {
   readUpstreamCatalogs,
   validateUpstreamCatalogs,
 } from './upstream/locales';
-import { readUpstreamState, restoreForkPaths, writeUpstreamState } from './upstream/repository';
+import {
+  readUpstreamState,
+  restoreForkPaths,
+  validateForkOwnership,
+  writeUpstreamState,
+} from './upstream/repository';
 import { generateSourcePatches, validateSourcePatches } from './upstream/source-patches';
 
 /** Prepare a clean checkout without committing; preserve unresolved business conflicts for review. */
@@ -35,6 +40,8 @@ export async function syncUpstream(repository: string, upstreamRef: string): Pro
   }
 
   // Validate ownership and build all generated content before mutating the checkout.
+  validateForkOwnership(repository, baseline);
+  validateForkOwnership(repository, upstream);
   await validateSourcePatches(repository, baseline);
   validateUpstreamCatalogs(repository, baseline);
   const candidates = await generateSourcePatches(repository, upstream);
