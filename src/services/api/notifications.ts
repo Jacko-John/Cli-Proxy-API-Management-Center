@@ -1,5 +1,23 @@
 import { usagePluginClient, USAGE_PLUGIN_API_BASE } from './usagePluginClient';
 
+export interface UsageSMTPProfile {
+  id: string;
+  name: string;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_security: 'tls' | 'starttls';
+  smtp_username: string;
+  sender: string;
+  password_configured: boolean;
+}
+
+export interface SMTPPasswordEdit {
+  password: string;
+  clear_password: boolean;
+}
+
+export type SMTPPasswordEdits = Record<string, SMTPPasswordEdit>;
+
 export interface UsageNotificationSettings {
   configured?: boolean;
   enabled: boolean;
@@ -8,9 +26,15 @@ export interface UsageNotificationSettings {
   hour: number;
   minute: number;
   timezone: string;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_security: 'tls' | 'starttls';
+  smtp_username: string;
   sender: string;
   password_configured: boolean;
   next_at: number;
+  active_smtp_profile_id: string;
+  smtp_profiles: UsageSMTPProfile[];
 }
 
 export interface UsageSubscription {
@@ -61,11 +85,15 @@ export interface UsageNotificationHistory {
 const base = `${USAGE_PLUGIN_API_BASE}/notifications`;
 export const usageNotificationsApi = {
   settings: () => usagePluginClient.get<UsageNotificationSettings>(`${base}/settings`),
-  saveSettings: (settings: UsageNotificationSettings, password: string, clearPassword: boolean) =>
+  // Password edits belong to one profile ID and are never copied to another sender.
+  saveSettings: (settings: UsageNotificationSettings, passwordEdits: SMTPPasswordEdits = {}) =>
     usagePluginClient.put<UsageNotificationSettings>(`${base}/settings`, {
       ...settings,
-      password,
-      clear_password: clearPassword,
+      smtp_profiles: settings.smtp_profiles.map((profile) => ({
+        ...profile,
+        password: passwordEdits[profile.id]?.password ?? '',
+        clear_password: passwordEdits[profile.id]?.clear_password ?? false,
+      })),
     }),
   subscriptions: () =>
     usagePluginClient.get<{ subscriptions: UsageSubscription[] }>(`${base}/subscriptions`),

@@ -13,6 +13,7 @@ import {
   type UsageSubscription,
   type UsageNotificationHistory,
   type UsageNotificationPeriod,
+  type SMTPPasswordEdits,
 } from '@/services/api/notifications';
 import { useAuthStore, useNotificationStore } from '@/stores';
 import { getErrorMessage } from '@/utils/helpers';
@@ -23,6 +24,8 @@ import {
   notificationTimezone,
 } from './logic';
 import { NotificationPeriods } from './NotificationPeriods';
+import { NotificationSMTPSettings } from './NotificationSMTPSettings';
+import { editableSMTPSettings } from './smtpProfiles';
 import styles from './UsageNotificationsPage.module.scss';
 
 export function UsageNotificationsPage() {
@@ -38,8 +41,7 @@ export function UsageNotificationsPage() {
   const [history, setHistory] = useState<UsageNotificationHistory>({ current: [], periods: [] });
   const [historyRevision, refreshHistory] = useReducer((revision: number) => revision + 1, 0);
   const [draft, setDraft] = useState<UsageSubscription | null>(null);
-  const [password, setPassword] = useState('');
-  const [clearPassword, setClearPassword] = useState(false);
+  const [passwordEdits, setPasswordEdits] = useState<SMTPPasswordEdits>({});
   const [recipient, setRecipient] = useState('');
   const [error, setError] = useState('');
   const [historyError, setHistoryError] = useState('');
@@ -54,6 +56,7 @@ export function UsageNotificationsPage() {
     if (!connected) {
       setLoading(false);
       setSettings(null);
+      setPasswordEdits({});
       return;
     }
     setLoading(true);
@@ -65,7 +68,13 @@ export function UsageNotificationsPage() {
         apiKeysApi.list(),
       ]);
       if (generation !== loadGeneration.current) return;
-      setSettings({ ...cfg, timezone: notificationTimezone(cfg) });
+      setSettings(
+        editableSMTPSettings(
+          { ...cfg, timezone: notificationTimezone(cfg) },
+          t('usage_notifications.smtp_default_profile')
+        )
+      );
+      setPasswordEdits({});
       setSubscriptions(result.subscriptions);
       setKeys(availableKeys);
       setSelected((id) =>
@@ -141,9 +150,8 @@ export function UsageNotificationsPage() {
   const save = () =>
     action(async () => {
       if (!settings) return;
-      setSettings(await usageNotificationsApi.saveSettings(settings, password, clearPassword));
-      setPassword('');
-      setClearPassword(false);
+      setSettings(await usageNotificationsApi.saveSettings(settings, passwordEdits));
+      setPasswordEdits({});
       refreshHistory();
     });
   const confirm = (title: string, message: string, fn: () => Promise<void>) =>
@@ -254,34 +262,12 @@ export function UsageNotificationsPage() {
                     {settings.next_at ? time(settings.next_at, settings.timezone) : '—'}
                   </p>
                 </Card>
-                <Card title={text('smtp')}>
-                  <Input
-                    label={text('sender')}
-                    type="email"
-                    value={settings.sender}
-                    onChange={(e) => update('sender', e.target.value)}
-                  />
-                  <Input
-                    label={text('password')}
-                    type="password"
-                    autoComplete="new-password"
-                    value={password}
-                    placeholder={text(
-                      settings.password_configured ? 'configured' : 'not_configured'
-                    )}
-                    onChange={(e) => setPassword(e.target.value)}
-                  />
-                  <label className={styles.check}>
-                    <input
-                      type="checkbox"
-                      checked={clearPassword}
-                      onChange={(e) => setClearPassword(e.target.checked)}
-                    />
-                    {text('clear_password')}
-                  </label>
-                  <p className={styles.muted}>{text('smtp_hint')}</p>
-                  <p className={styles.muted}>{text('security')}</p>
-                </Card>
+                <NotificationSMTPSettings
+                  settings={settings}
+                  onChange={setSettings}
+                  passwordEdits={passwordEdits}
+                  onPasswordEditsChange={setPasswordEdits}
+                />
               </div>
               <Button type="submit" disabled={busy}>
                 {text('save')}

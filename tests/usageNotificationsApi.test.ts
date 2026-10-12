@@ -25,9 +25,36 @@ const settings: UsageNotificationSettings = {
   hour: 9,
   minute: 30,
   timezone: 'Asia/Singapore',
+  smtp_host: 'smtp.example.com',
+  smtp_port: 587,
+  smtp_security: 'starttls',
+  smtp_username: 'smtp-login',
   sender: 'sender@example.com',
   password_configured: false,
   next_at: 0,
+  active_smtp_profile_id: 'primary',
+  smtp_profiles: [
+    {
+      id: 'primary',
+      name: 'Primary',
+      smtp_host: 'smtp.example.com',
+      smtp_port: 587,
+      smtp_security: 'starttls',
+      smtp_username: 'smtp-login',
+      sender: 'sender@example.com',
+      password_configured: false,
+    },
+    {
+      id: 'backup',
+      name: 'Backup',
+      smtp_host: 'backup.example.com',
+      smtp_port: 465,
+      smtp_security: 'tls',
+      smtp_username: '',
+      sender: 'backup@example.com',
+      password_configured: true,
+    },
+  ],
 };
 
 const subscription: UsageSubscription = {
@@ -43,10 +70,34 @@ const subscription: UsageSubscription = {
 const cases = [
   { run: () => usageNotificationsApi.settings(), method: 'get', path: 'settings' },
   {
-    run: () => usageNotificationsApi.saveSettings(settings, 'fixture-password', false),
+    run: () =>
+      usageNotificationsApi.saveSettings(settings, {
+        primary: { password: 'fixture-password', clear_password: false },
+        backup: { password: '', clear_password: true },
+        removed: { password: 'discarded-password', clear_password: false },
+      }),
     method: 'put',
     path: 'settings',
-    data: { ...settings, password: 'fixture-password', clear_password: false },
+    data: {
+      ...settings,
+      smtp_profiles: [
+        { ...settings.smtp_profiles[0], password: 'fixture-password', clear_password: false },
+        { ...settings.smtp_profiles[1], password: '', clear_password: true },
+      ],
+    },
+  },
+  {
+    run: () => usageNotificationsApi.saveSettings(settings),
+    method: 'put',
+    path: 'settings',
+    data: {
+      ...settings,
+      smtp_profiles: settings.smtp_profiles.map((profile) => ({
+        ...profile,
+        password: '',
+        clear_password: false,
+      })),
+    },
   },
   { run: () => usageNotificationsApi.subscriptions(), method: 'get', path: 'subscriptions' },
   {
