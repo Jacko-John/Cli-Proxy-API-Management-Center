@@ -1,25 +1,27 @@
-/** Prepare an upstream merge; dependency resolution, verification and publication belong to CI. */
+/** Adopt an exact upstream release and replay the registered plugin extension without publishing. */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { git } from './upstream/git';
-import { mergeJsonFiles, mergeLockfile } from './upstream/data-files';
-import {
-  catalogDirectory,
-  readUpstreamCatalogs,
-  validateUpstreamCatalogs,
-} from './upstream/locales';
+import { generatePackageJson } from './upstream/data-files';
+import { blob, git } from './upstream/git';
 import {
   readUpstreamState,
   restoreForkPaths,
+  validateForkChanges,
   validateForkOwnership,
   writeUpstreamState,
 } from './upstream/repository';
-import { generateSourcePatches, validateSourcePatches } from './upstream/source-patches';
+import {
+  generateSourcePatches,
+  sourcePatches,
+  validateSourcePatches,
+} from './upstream/source-patches';
 
-/** Prepare a clean checkout without committing; preserve unresolved business conflicts for review. */
+/** Prepare a clean checkout, preserving merge ancestry and rejecting unknown fork edits first. */
 export async function syncUpstream(repository: string, upstreamRef: string): Promise<void> {
-  // Require a clean fork and a release descended from its exact recorded upstream baseline.
-  if (git(repository, ['status', '--porcelain']).stdout.trim()) {
+  if (
+    git(repository, ['status', '--porcelain']).stdout.trim() ||
+    git(repository, ['rev-parse', '-q', '--verify', 'MERGE_HEAD'], true).exitCode === 0
+  ) {
     throw new Error('Upstream synchronization requires a clean checkout');
   }
   const before = git(repository, ['rev-parse', 'HEAD']).stdout.trim();
@@ -39,16 +41,26 @@ export async function syncUpstream(repository: string, upstreamRef: string): Pro
     }
   }
 
-  // Validate ownership and build all generated content before mutating the checkout.
+  // Validate the complete preservation plan before a merge can modify any tracked file.
   validateForkOwnership(repository, baseline);
   validateForkOwnership(repository, upstream);
+  validateForkChanges(repository, baseline, Object.keys(sourcePatches), !state.strategy);
   await validateSourcePatches(repository, baseline);
-  validateUpstreamCatalogs(repository, baseline);
   const candidates = await generateSourcePatches(repository, upstream);
-  const upstreamCatalogs = readUpstreamCatalogs(repository, upstream);
-  const lockfile = mergeLockfile(repository, baseline, upstream);
+  const packageJson = generatePackageJson(repository, upstream);
+  if (blob(repository, upstream, 'bun.lock') === null) {
+    throw new Error(`${upstreamRef}: missing upstream bun.lock`);
+  }
 
-  // Let Git merge ordinary code, then restore the paths explicitly maintained by the fork.
+  // A verified snapshot already contains Bun's resolved plugin graph; do not discard its lockfile.
+  if (upstream === baseline && state.strategy === 'upstream-snapshot') {
+    console.log(
+      `Already prepared ${upstreamRef}: plugin integrations and dependency policy validated`
+    );
+    return;
+  }
+
+  // Retain upstream ancestry, then replace ordinary files with the exact release snapshot.
   const merge = git(repository, ['merge', '--no-ff', '--no-commit', upstream], true);
   const mergeHead = git(
     repository,
@@ -58,34 +70,24 @@ export async function syncUpstream(repository: string, upstreamRef: string): Pro
   if (merge.exitCode !== 0 && mergeHead !== upstream) {
     throw new Error(`Upstream merge failed: ${merge.stderr}`);
   }
+  git(repository, ['read-tree', '--reset', '-u', upstream]);
   restoreForkPaths(repository, before);
 
-  // Replace managed sources and catalogs, including languages removed by upstream.
-  const catalogPaths = git(repository, ['ls-files', '-z', '--', catalogDirectory])
-    .stdout.split('\0')
-    .filter(Boolean);
-  const deleted = [...new Set(catalogPaths)].filter((path) => !upstreamCatalogs.has(path));
-  if (deleted.length) git(repository, ['rm', '-f', '--', ...deleted]);
-  const files = new Map([...candidates, ...upstreamCatalogs, ['bun.lock', lockfile]]);
+  // Only declared plugin integrations and dependencies modify the upstream-owned snapshot.
+  const files = new Map([...candidates, ['package.json', packageJson]]);
   for (const [path, source] of files) {
     mkdirSync(dirname(resolve(repository, path)), { recursive: true });
     writeFileSync(resolve(repository, path), source);
   }
   git(repository, ['add', '--', ...files.keys()]);
 
-  // Reconcile configuration by value and refuse to hide remaining business conflicts.
-  mergeJsonFiles(repository, baseline, before, upstream);
-  const conflicts = git(repository, ['diff', '--name-only', '--diff-filter=U']).stdout.trim();
-  if (conflicts) {
-    throw new Error(
-      `Unresolved upstream conflicts outside the registered patch layer:\n${conflicts}`
-    );
-  }
-
-  // Record the prepared baseline; CI must resolve dependencies and verify before committing.
-  writeUpstreamState(repository, { upstreamTag: upstreamRef, upstreamCommit: upstream });
+  writeUpstreamState(repository, {
+    upstreamTag: upstreamRef,
+    upstreamCommit: upstream,
+    strategy: 'upstream-snapshot',
+  });
   console.log(
-    `Prepared ${upstreamRef}: replayed ${candidates.size} source integrations; Bun resolution and verification required before commit`
+    `Prepared ${upstreamRef}: adopted upstream snapshot and replayed ${candidates.size} plugin integrations; Bun resolution and verification required before commit`
   );
 }
 

@@ -1,3 +1,4 @@
+/** Add plugin translation keys while preserving upstream text and resource shapes. */
 import type { i18n } from 'i18next';
 import { notificationTranslations } from './notificationTranslations';
 
@@ -1424,6 +1425,7 @@ export const forkTranslations = {
 const isPlainRecord = (value: unknown): value is TranslationRecord =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
+/** Recursively fill missing keys; an existing upstream value always owns its translation path. */
 function mergeTranslations(
   base: TranslationRecord,
   extra: TranslationRecord
@@ -1431,17 +1433,20 @@ function mergeTranslations(
   const result: Record<string, unknown> = { ...base };
 
   Object.entries(extra).forEach(([key, value]) => {
+    if (!Object.prototype.hasOwnProperty.call(base, key)) {
+      result[key] = value;
+      return;
+    }
     const current = result[key];
     if (isPlainRecord(current) && isPlainRecord(value)) {
       result[key] = mergeTranslations(current, value);
-      return;
     }
-    result[key] = value;
   });
 
   return result;
 }
 
+/** Register the plugin's language overlays without changing the upstream language list or fallback. */
 export function registerForkTranslations(instance: i18n): void {
   Object.entries(forkTranslations).forEach(([language, translations]) => {
     instance.addResourceBundle(

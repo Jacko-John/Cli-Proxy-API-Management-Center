@@ -63,9 +63,7 @@ export function extendForkSidebar(
     }
   }
   return groups.map((group) => {
-    const items = group.items.filter(
-      (item) => item.kind === 'drawer' || item.path !== '/quick-start'
-    );
+    const items = group.items;
     const forkItems = additions[group.id] ?? [];
     const paths = new Set(
       items.flatMap((item) =>

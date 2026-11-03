@@ -433,11 +433,7 @@
     "quota_refresh_single": "重新整理配額",
     "quota_refresh_hint": "僅重新整理該驗證檔案的配額",
     "quota_refresh_success": "已重新整理「{{name}}」的配額",
-    "quota_refresh_failed": "重新整理「{{name}}」的配額失敗：{{message}}",
-    "cooldown_models_one": "{{count}} 個模型冷卻",
-    "cooldown_models_other": "{{count}} 個模型冷卻",
-    "cooldown_credential_and_models_one": "憑證及 {{count}} 個模型冷卻",
-    "cooldown_credential_and_models_other": "憑證及 {{count}} 個模型冷卻"
+    "quota_refresh_failed": "重新整理「{{name}}」的配額失敗：{{message}}"
   },
   "antigravity_subscription": {
     "plan_unknown": "未知",
@@ -553,6 +549,7 @@
     "reset_confirm_button": "確認重置",
     "reset_not_confirmed": "尚未確認額度重置成功，請重新整理額度後再決定是否重試。",
     "reset_cooldown_failed": "額度已重置，但代理冷卻清除失敗。請在原連線的認證檔案頁面使用「清除冷卻」，不要再次消耗重置卡。",
+
     "reset_success": "已重置「{{name}}」的 Codex 配額",
     "reset_failed": "重置「{{name}}」的 Codex 配額失敗：{{message}}",
     "plan_plus": "Plus",

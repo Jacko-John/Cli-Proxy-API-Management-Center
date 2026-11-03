@@ -1,82 +1,170 @@
-# Cli-Proxy-API-Management-Center
+<div align="center">
 
-> 本仓库为上游 Web UI 项目的二次开发版本。
->
-> 原始/基础功能请参考上游仓库：https://github.com/router-for-me/Cli-Proxy-API-Management-Center
+<img src="./logo.jpg" alt="CLI Proxy API" width="144">
+
+# CLI Proxy API Management Center
+
+**Your proxy, at a glance. Your configuration, in control.**
+
+A lightweight Web UI for CLI Proxy API.<br>
+Manage providers, credentials, quotas, and logs — from a single HTML file.
+
+[![Backend: v8](https://img.shields.io/badge/Backend-v8-5865F2?style=flat-square)](https://github.com/router-for-me/CLIProxyAPI)
+[![Single-file build](https://img.shields.io/badge/Build-single_HTML-0F766E?style=flat-square)](#deployment)
+[![License: MIT](https://img.shields.io/badge/License-MIT-64748B?style=flat-square)](LICENSE)
+
+**English** · [简体中文](README_CN.md)
+
+[Get started](#quick-start) · [Features](#features) · [Development](#development) · [Releases](https://github.com/router-for-me/Cli-Proxy-API-Management-Center/releases)
+
+</div>
+
+---
+
+## One place to manage your instance
+
+From everyday configuration to troubleshooting, keep the essentials close at hand.
+
+| Configure | Connect | Observe |
+| --- | --- | --- |
+| Edit settings visually or in YAML, with a diff before saving. | Manage provider keys, auth files, and OAuth flows. | Check instance status, provider quotas, and request logs. |
+
+**Single-file deployment** · **Responsive layout** · **Four UI languages**
 
 > [!IMPORTANT]
-> 兼容说明：官方 CPA 已移除使用统计 API。
->
-> 如需使用本 fork 的「监控中心」完整功能，必须搭配本 fork 适配的插件：
-> https://github.com/Jacko-John/cpa-usage-statistics
->
-> 从 `v1.26.1-patch.2` 起，配套独立插件 ID 为 `jacko-usage-statistics`，后端版本从 `v0.5.0` 起。新面板使用该 ID 的接口；旧 `usage-statistics` 插件请按后端 README 迁移，继续使用原数据目录，并停用旧实例。
+> Requires **CLI Proxy API ≥ 8.0.0**; the latest v8 release is recommended. This repository is the management UI, not the proxy — it does not forward traffic. It uses the **v8 Management API** (`/v8/management`) and v8 configuration layout, with no v0 fallback. Plugin resources and custom extensions retain their backend-declared paths.
 
-插件商店自有源：`https://raw.githubusercontent.com/Jacko-John/cpa-usage-statistics/main/registry.json`。宿主配置的 `remote-management.panel-github-repository` 请指向 `https://github.com/Jacko-John/Cli-Proxy-API-Management-Center`，自动更新将下载本仓库发布的 `management.html`。
+## Quick start
 
-本 README 只记录 **本 fork 相对上游新增/增强的功能点**。
+The UI is bundled with [CLI Proxy API](https://github.com/router-for-me/CLIProxyAPI). No separate frontend deployment is needed for the standard setup.
 
-## 本 fork 新增/增强功能
+1. Start your CLI Proxy API service.
+2. Open `http://<host>:<api_port>/management.html`.
+3. Enter your **management key** and connect.
 
-### 新增监控中心页面
+The API address is detected from the page URL and can be changed manually.
 
-- 类似于使用统计界面，但界面美化&增强。
-  - 新增「花费与Token」趋势图。
-  - 新增「模型使用分布」统计。
+> [!NOTE]
+> The **management key** signs you into this UI. Client keys in `access.api-keys` authorize requests to the proxy — they are not interchangeable.
 
-- 增强凭证统计
-  - 新增凭证花费统计
-  - 对于Codex凭证：可一键刷新配额，并根据配额的截止时间往前倒推统计5h花费/周花费。
+<details>
+<summary><strong>Connection settings & remote access</strong></summary>
 
-- 增强请求事件明细：
-  - 支持自动刷新（15s/30s/1m/5m）
-  - 新增Tokens per second (TPS) 统计
-  - 新增首字延迟统计
-  - 点击每行前方的减号图标可以删除记录
-  - 新增缓存命中率统计
-  - 当请求失败时，可点击“失败”查看失败日志（实际上是该凭证的最新状态日志，非精确的请求日志）。
+The UI accepts addresses such as `localhost:8317`, `https://example.com:8317`, or `http://example.com:8317/v8/management`; the management suffix is removed automatically.
 
-- 一键导入模型价格
-  - 从 https://models.dev/api.json 拉取最新价格并导入，对于多Provider的模型，可以手动指定优先用哪个Provider的价格
-  - 仅对 **已有使用记录** 的模型进行匹配与同步
-  - 支持CPA模型名称映射，例如把CPA中的coder-model先映射为qwen3.6-plus后再进行价格匹配
+Management requests use `Authorization: Bearer <MANAGEMENT_KEY>`. Remote access may require `management.allow-remote: true` on the server. See the [backend documentation](https://github.com/router-for-me/CLIProxyAPI) for authentication rules and server-side limits.
 
-### 新增凭证中心页面
+</details>
 
-- Codex 凭证池统计
-  - 支持「刷新全部」「刷新未获取」两个批量刷新入口，可设置刷新间隔秒数，并显示批量刷新进度。
-  - 展示 7天预估总额度、7天预估剩余额度，以及 Codex 凭证数和未获取额度数量。
-  - 按 Codex 类别展示凭证数、已获取额度数、7天预估总额度、7天预估剩余额度、单凭证7天平均额度。
-  - 按固定百分比分档展示各凭证的 7 天配额剩余情况，适合大量凭证快速观察分布。
+<details>
+<summary><strong>Upgrading from v7</strong></summary>
 
-- Antigravity 凭证额度
-  - 按 Claude / Gemini 模型分组展示 Antigravity 凭证的剩余额度百分比与配额重置时间。
-  - 结合已导入的模型价格估算各分组的剩余可用花费。
+Upgrade the backend first and back up `config.yaml`. The backend returns the v8 configuration layout on reads; a successful v8 configuration write migrates the stored file. The editor only writes v8 fields:
 
-## 自动同步与发布
+- `access.api-keys`: client keys for accessing the proxy.
+- Top-level `api-keys`: upstream provider groups.
 
-- `.github/workflows/sync-upstream.yml` 每 6 小时检查一次上游最新的正式 Release，不跟随上游 `main` 的普通提交发布。
-- 工作流合并对应的精确上游 Tag，执行完整测试、ESLint 和生产构建，成功后发布单文件 `management.html`。
-- 路由、侧栏和翻译等 fork 扩展独立维护；`scripts/upstream/source-patches.ts` 定义源码接入补丁，按 TypeScript 语法节点重新应用到每次发布的上游源码，不依赖行号或相邻代码。上游新增语言、路由、菜单及导出会保留。
-- `scripts/upstream/repository.ts` 声明 fork 专属命名空间，覆盖 `src/fork/`、通知功能目录及其 API、插件传输和翻译模块。同步前检查上游基线与目标 Release 的完整文件树；即使 Git 能自动合并，上游占用这些路径、在其中新增文件或用文件阻塞其父目录时，也会先退出并报告路径。归属无冲突后，专属源码按 fork 原样保留；其他上游源码继续正常合并。
-- `.github/upstream-sync.json` 记录精确的上游基线；同步前校验接入文件的 fork 改动已完整纳入补丁，遗漏的改动会报错，避免被覆盖。维护新的接入点后，运行 `bun scripts/apply-fork-patches.ts` 重新生成接入文件。
-- JSON 配置按键进行三方合并；Bun 锁文件采用上游更新与 fork 增量，再由 Bun 重新解析和校验。两边对同一个配置值的不同修改需要审查，不会盲目覆盖。
-- fork 文案维护在 `forkTranslations.ts` 及功能自己的翻译模块；上游语言包每次采用精确 Tag 的原始内容，再统一补齐缺失或无效文案。上游补上正式翻译后自动替换回退内容，新增和删除语言也自动跟随。
-- 测试使用 `bun test --isolate`，每个文件独立运行，避免语言状态和 mock 在文件之间泄漏；本地仍使用 `bun run verify` 完整校验。
-- 补丁 Release 使用 `<上游Tag>-patch.N`，例如 `v1.22.12-patch.1`；同一上游版本默认只发布一次。
-- 可通过 `workflow_dispatch` 指定正式上游 Tag；同步拒绝早于当前基线的版本。启用 `force_release` 时为相同上游版本发布下一个 patch 版本；重新执行源码同步不会重复叠加补丁。
-- 验证通过后才提交和推送 `main` 并发布；接入接口变更、业务冲突或验证失败时，Action 保留日志、冲突路径和候选源码补丁供审查。
+</details>
 
-这些规则保证明确归属的源码保留，并拦截声明范围内的路径与接入冲突。上游共享组件、客户端或依赖库可能在接口类型不变时改变行为；这类语义兼容仍需围绕外部契约审查，不能仅凭构建或测试通过下结论。
+## Features
 
-## 使用方法
+| Area | What you can do |
+| --- | --- |
+| **Dashboard** | See connection status, server version, build date, and model availability at a glance. |
+| **Configuration** | Edit common settings and client keys visually, or use the YAML editor with search, highlighting, and a save diff preview. |
+| **AI providers** | Configure Gemini, Codex, Claude, Vertex, and OpenAI-compatible providers; manage keys, headers, proxies, and model mappings. |
+| **Auth files & OAuth** | Upload, download, and organize credentials; connect supported providers with OAuth or device flows; manage model aliases and exclusions. |
+| **Quotas** | Inspect quota and usage information for supported providers, including Claude, Antigravity, Codex, Kimi, and xAI/Grok. |
+| **Logs** | Follow logs with auto-refresh, search, hide management traffic, and download request error logs. |
+| **Plugins** | Access plugin management when the connected backend advertises support. |
+| **System** | Check for updates, inspect available models, and clear local login data. |
 
-在CPA的配置面板中，设置面板仓库为本仓库地址后，强制刷新（Ctrl+F5）页面
+Supports **English, 简体中文, 繁體中文, and Русский**, with browser-language detection and a manual language switch. Responsive layouts support desktop, tablet, and mobile use in modern Chrome, Firefox, Safari, and Edge.
 
-## 友链
+## Sponsor
 
-[![友链 linux.do](https://img.shields.io/badge/LINUX--DO-Community-blue.svg)](https://linux.do/)
+[![APIMart — AI image and video generation API](./assets/apimart-en.png)](https://go.apimart.ai/gh-cli-proxy-api-management-center)
 
-## License
+Thanks to **APIMart** for sponsoring this project!
 
-MIT
+APIMart is a low-cost API platform for AI image & video generation — GPT-Image-2 from $0.006/image, 160+ images per dollar. One async API covers both image and video: submit a task, get an ID, fetch results via polling or callback. Batch tens of thousands of images without timeouts, switch models without changing code. Pay-as-you-go with no monthly fee — [sign up here](https://go.apimart.ai/gh-cli-proxy-api-management-center) to get started.
+
+## Deployment
+
+To build your own single-file UI, use **Bun 1.3.14**:
+
+```bash
+bun install --frozen-lockfile
+bun run build
+```
+
+The output is **`dist/index.html`**, with JavaScript, CSS, and bundled assets inlined. The release workflow renames it to `management.html` for backend hosting.
+
+Use `bun run preview` to preview locally. Prefer an HTTP server over opening the file via `file://`, which can encounter browser CORS restrictions.
+
+<details>
+<summary><strong>Release details</strong></summary>
+
+- Tags matching `vX.Y.Z` trigger [the release workflow](.github/workflows/release.yml).
+- The UI version is injected at build time from `VERSION`, then git tags, then the package version, with `dev` as the final fallback.
+- Hash routing and an ES2020 build target keep deployment simple.
+
+</details>
+
+## Development
+
+```bash
+bun install --frozen-lockfile
+bun run dev
+```
+
+Open `http://localhost:5173` and connect to your backend instance.
+
+**Built with** React 19 · TypeScript 6 · Vite 8 · Zustand · Axios · React Router 7 · Motion · CodeMirror 6 · SCSS Modules · i18next.
+
+| Command | Purpose |
+| --- | --- |
+| `bun run dev` | Start the Vite dev server |
+| `bun run build` | TypeScript compilation + production build |
+| `bun run preview` | Serve the build locally |
+| `bun run test` | Run Bun tests |
+| `bun run lint` | Run ESLint; warnings are not treated as failures |
+| `bun run type-check` | Run `tsc --noEmit` |
+| `bun run verify` | Run tests, lint, and build |
+| `bun run format` | Format source files with Prettier |
+
+Issues and PRs are welcome. Include reproduction steps, backend and UI versions, screenshots for UI changes, and verification results. See [AGENTS.md](AGENTS.md) for repository conventions.
+
+## Security
+
+Treat the management key as a secret. When **remember password** is enabled, it is persisted in browser storage using reversible obfuscation — **not encryption**.
+
+Use a trusted device or dedicated browser profile. Enable remote management only after evaluating the exposure of your server.
+
+## Troubleshooting
+
+<details>
+<summary><strong>Connection or authentication problems</strong></summary>
+
+- **Cannot connect / 401:** check the API address and management key. Remote connections may require remote management to be enabled.
+- **Repeated authentication failures:** the server may temporarily block remote IPs.
+
+</details>
+
+<details>
+<summary><strong>Missing pages, unsupported features, or failed tests</strong></summary>
+
+- **Logs page missing:** enable “Logging to file” in Basic Settings.
+- **Feature unsupported:** check the backend version and whether the relevant endpoint is enabled. Some capabilities depend on backend support.
+- **Model list unavailable:** querying `/v1/models` requires at least one proxy API key.
+- **OpenAI provider test fails:** this test runs in the browser and depends on the provider's network reachability and CORS policy. Failure does not necessarily mean the backend cannot reach it.
+
+</details>
+
+---
+
+<div align="center">
+
+[CLI Proxy API](https://github.com/router-for-me/CLIProxyAPI) · [Report an issue](https://github.com/router-for-me/Cli-Proxy-API-Management-Center/issues) · [MIT License](LICENSE)
+
+</div>

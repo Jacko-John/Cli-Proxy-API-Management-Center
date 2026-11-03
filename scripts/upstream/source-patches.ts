@@ -138,19 +138,6 @@ const sidebar: Patch = (patch) => {
   );
 };
 
-/** Keep the established fork repository link; require a unique upstream link anchor. */
-const systemLink: Patch = (patch) => {
-  const link = patch.one(
-    patch
-      .nodes(ts.isStringLiteral)
-      .filter(
-        (node) => node.text === 'https://github.com/router-for-me/Cli-Proxy-API-Management-Center'
-      ),
-    'frontend repository link'
-  );
-  patch.replace(link, '"https://github.com/Fwindy/Cli-Proxy-API-Management-Center"');
-};
-
 /** Keep the existing public exports while preserving any new upstream exports. */
 const exportModule =
   (module: string): Patch =>
@@ -177,7 +164,6 @@ export const sourcePatches: Record<string, Patch> = {
   'src/i18n/index.ts': translations,
   'src/router/MainRoutes.tsx': routes,
   'src/components/layout/MainLayout.tsx': sidebar,
-  'src/pages/SystemPage.tsx': systemLink,
   'src/services/api/index.ts': exportModule('./usage'),
   'src/types/index.ts': exportModule('./usageSafety'),
 };

@@ -26,7 +26,7 @@ describe('fork navigation extensions', () => {
     expect(() => extendForkRoutes([{ path: '/monitor' }], true)).toThrow('both register');
   });
 
-  test('keeps upstream groups and entries, hides quick start, and preserves fork ordering', () => {
+  test('keeps all upstream entries in order, including quick start, and inserts plugin pages', () => {
     const groups: SidebarNavGroup[] = [
       {
         id: 'operate',
@@ -51,7 +51,7 @@ describe('fork navigation extensions', () => {
     const paths = (value: SidebarNavGroup) =>
       value.items.map((item) => (item.kind === 'drawer' ? item.id : item.path));
     const extended = extendForkSidebar(groups, true);
-    expect(paths(extended[0])).toEqual(['/new-upstream-page']);
+    expect(paths(extended[0])).toEqual(['/quick-start', '/new-upstream-page']);
     expect(paths(extended[1])).toEqual([
       '/quota',
       '/monitor',
@@ -69,6 +69,19 @@ describe('fork navigation extensions', () => {
     ]);
     expect(groups).toEqual(original);
     expect(() => extendForkSidebar([], true)).toThrow('group observe is missing');
+
+    // Plugin insertions must preserve every upstream entry and its original relative position.
+    const pluginPaths = new Set([
+      '/monitor',
+      '/safety',
+      '/usage-notifications',
+      '/credential-center',
+    ]);
+    extended.forEach((group, index) => {
+      expect(
+        group.items.filter((item) => item.kind === 'drawer' || !pluginPaths.has(item.path))
+      ).toEqual(groups[index].items);
+    });
   });
 
   test('only exposes the usage plugin when registered and enabled', () => {

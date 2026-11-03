@@ -1,80 +1,66 @@
-/** Reconcile repository JSON and generated Bun lock data without guessing business conflicts. */
-import { writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+/** Keep the upstream package and toolchain authoritative while adding plugin-only dependencies. */
 import { isDeepStrictEqual } from 'node:util';
-import ts from 'typescript';
-import { blob, git } from './git';
-import { mergeJson, missing } from './json-merge';
-import { catalogDirectory } from './locales';
-import { isForkOwnedPath } from './repository';
+import { blob } from './git';
 
-/** Merge generated lock data; conflicting upstream pins still require resolution with Bun. */
-export function mergeLockfile(repository: string, baseline: string, upstream: string): string {
-  const parse = (ref: string) => {
-    const source = blob(repository, ref, 'bun.lock');
-    if (source === null) return missing;
-    const result = ts.parseConfigFileTextToJson('bun.lock', source);
-    if (result.error) throw new Error(`${ref}: malformed Bun lockfile`);
-    return result.config;
-  };
-  const theirs = parse(upstream);
-  if (theirs === missing) throw new Error('The upstream release has no Bun lockfile');
-  const ours = parse('HEAD');
-  const merged = mergeJson(parse(baseline), ours, theirs, '$', (path, value) => {
-    console.log(`Generated lockfile conflict ${path}: use upstream pin, then resolve with Bun`);
-    return value;
-  });
+export const pluginDependencies = {
+  'chart.js': '^4.5.1',
+  'react-chartjs-2': '^5.3.1',
+} as const;
 
-  // Preserve Bun's serialization when the dependency graph is unchanged, including reruns.
-  if (isDeepStrictEqual(merged, ours)) return blob(repository, 'HEAD', 'bun.lock')!;
-  if (isDeepStrictEqual(merged, theirs)) return blob(repository, upstream, 'bun.lock')!;
-  return JSON.stringify(merged, null, 2) + '\n';
+interface PackageJson {
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
+  peerDependencies?: Record<string, string>;
+  scripts?: Record<string, string>;
+  [key: string]: unknown;
 }
 
-/** Merge JSON changed by both sides, even when Git's textual merge reports no conflict. */
-export function mergeJsonFiles(
+/** Read an upstream package; an absent package cannot supply the shared build contract. */
+function readPackage(repository: string, ref: string): PackageJson {
+  const source = blob(repository, ref, 'package.json');
+  if (source === null) throw new Error(`${ref}: missing upstream package.json`);
+  return JSON.parse(source);
+}
+
+/** Add only missing chart dependencies, preserving every version already selected by upstream. */
+function withPluginDependencies(upstream: PackageJson): PackageJson {
+  const result = structuredClone(upstream);
+  const sections = [
+    upstream.dependencies,
+    upstream.devDependencies,
+    upstream.optionalDependencies,
+    upstream.peerDependencies,
+  ];
+  for (const [name, version] of Object.entries(pluginDependencies)) {
+    if (sections.some((section) => section && Object.hasOwn(section, name))) continue;
+    result.dependencies ??= {};
+    result.dependencies[name] = version;
+  }
+  return result;
+}
+
+/** Prepare a package from the exact release; CI resolves its lockfile with that release's Bun. */
+export function generatePackageJson(repository: string, upstream: string): string {
+  return JSON.stringify(withPluginDependencies(readPackage(repository, upstream)), null, 2) + '\n';
+}
+
+/** Reject unregistered package edits before adopting the next upstream package. */
+export function validatePackageChanges(
   repository: string,
   baseline: string,
-  before: string,
-  upstream: string
+  allowLegacyIsolation: boolean
 ): void {
-  const conflicts = new Set(
-    git(repository, ['diff', '--name-only', '-z', '--diff-filter=U'])
-      .stdout.split('\0')
-      .filter(Boolean)
-  );
-  const changed = (ref: string) =>
-    new Set(
-      git(repository, ['diff', '--name-only', '-z', baseline, ref, '--', '*.json'])
-        .stdout.split('\0')
-        .filter(Boolean)
-    );
-  const ours = changed(before);
-  const theirs = changed(upstream);
-  const paths = new Set([...conflicts, ...[...ours].filter((path) => theirs.has(path))]);
+  const upstream = readPackage(repository, baseline);
+  const ours = readPackage(repository, 'HEAD');
+  const expected = withPluginDependencies(upstream);
+  if (isDeepStrictEqual(ours, expected)) return;
 
-  // Language catalogs and fork-owned files have their own replacement policies.
-  for (const path of paths) {
-    if (
-      !path.endsWith('.json') ||
-      path.startsWith(`${catalogDirectory}/`) ||
-      isForkOwnedPath(path)
-    ) {
-      continue;
-    }
-    const parse = (ref: string) => {
-      const source = blob(repository, ref, path);
-      return source === null ? missing : JSON.parse(source);
-    };
-
-    // Index stages preserve Git's rename detection for conflicted paths.
-    const refs = conflicts.has(path) ? [':1', ':2', ':3'] : [baseline, before, upstream];
-    const value = mergeJson(parse(refs[0]), parse(refs[1]), parse(refs[2]), path);
-    if (value === missing) {
-      git(repository, ['rm', '-f', '--ignore-unmatch', '--', path]);
-    } else {
-      writeFileSync(resolve(repository, path), JSON.stringify(value, null, 2) + '\n');
-      git(repository, ['add', '--', path]);
-    }
+  // Retire the historical test-script override once; the shared scripts now follow upstream.
+  if (allowLegacyIsolation && upstream.scripts?.test === 'bun test') {
+    const legacy = structuredClone(expected);
+    legacy.scripts = { ...legacy.scripts, test: 'bun test --isolate' };
+    if (isDeepStrictEqual(ours, legacy)) return;
   }
+  throw new Error('package.json: fork edits are outside the registered plugin dependencies');
 }

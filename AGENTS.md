@@ -2,21 +2,16 @@
 
 ## Project Scope & Structure
 
-This is a React 19 + TypeScript + Vite management frontend for CLI Proxy API, not the proxy itself. It exclusively uses the backend v8 Management API under `/v8/management` and the v8 configuration layout; do not add v0 fallbacks or legacy config adapters. Plugin resources and custom HTTP extensions are exceptions: preserve their backend-declared paths.
+This is a React 19 + TypeScript + Vite management frontend for CLI Proxy API, not the proxy itself. It exclusively uses the backend v8 Management API under `/v8/management` and the v8 configuration layout; do not add v0 fallbacks or legacy config adapters. Plugin resources and custom HTTP extensions are exceptions: preserve their backend-declared paths. The one sanctioned v0 touchpoint is `src/services/api/legacyBackendProbe.ts`: after a v8 login 404 it only detects an outdated backend to show a clearer error, and must never supply application data or act as a login fallback.
 
-- `src/features/`: feature-owned pages, components, hooks, types, and logic. Current features include `dashboard`, `providers`, `authFiles`, `quota`, `config`, and `plugins`. Prefer this layout for new feature work.
-- `src/pages/`: existing route pages outside the feature layout. Follow nearby conventions when modifying these; do not migrate unrelated code.
+- `src/features/`: feature-owned pages, components, hooks, types, and logic. Current features are `dashboard`, `providers`, `authFiles`, `oauth`, `quota`, `config`, `logs`, and `plugins`. Prefer this layout for new feature work.
+- `src/pages/`: remaining route pages outside the feature layout (login, system, and the auth-file OAuth excluded-model/model-alias editors); `LogsPage.tsx` there is only a re-export of the logs feature. Follow nearby conventions when modifying these; do not migrate unrelated code.
 - `src/components/`, `src/hooks/`, `src/utils/`: shared UI, hooks, and utilities. Keep feature-specific code within its feature rather than promoting it prematurely.
 - `src/services/api/`: API client, domain endpoints, and backend data normalization. `src/services/storage/`: browser persistence.
 - `src/stores/`: Zustand state. `src/types/`: shared types. `src/styles/`: global styles and theme tokens.
 - `src/App.tsx`: hash-router setup. `src/router/MainRoutes.tsx`: authenticated route table. `ProtectedRoute` and `MainLayout` guard and wrap the authenticated app.
 - `src/assets/`: bundled assets, including provider icons in `icons/`.
-- `src/fork/`: fork integration modules, including routes and sidebar extensions. The integration with upstream-owned source files is defined in `scripts/upstream/source-patches.ts`, applied by syntax rather than line context. Change fork behavior in its own module; when adding a new integration, update the patch definition and run `bun scripts/apply-fork-patches.ts`. Sync checks that all changes to these generated files are represented before regenerating them, so do not add unrelated changes directly to them.
-- `src/fork/usagePlugin.ts` owns the independent `jacko-usage-statistics` identity and its host-mounted management path. Navigation and usage, pricing, safety and notification clients must share it; do not assume the upstream `usage-statistics` plugin implements our extensions.
-- Fork extension namespaces are declared in `scripts/upstream/repository.ts`, including `src/features/notifications/` and its API, plugin transport and translation modules. Keep declarations aligned when moving or adding extension roots. Sync checks both the baseline and release tree before merging, rejects file/directory collisions with these namespaces, then restores their exact fork content. Do not hide collisions by forcing one side of the merge.
-- `.github/upstream-sync.json` records the exact upstream baseline. Update it through synchronization, not by hand. The sync Action merges the upstream tag, reapplies the fork integration, merges JSON by key, resolves the generated Bun lockfile, and verifies before committing and publishing. Real code conflicts or ambiguous integration anchors stop publication and produce diagnostics.
-- `scripts/sync-upstream.ts` coordinates the merge. Keep source generation in `scripts/upstream/source-patches.ts`, catalog normalization and ownership checks in `locales.ts`, repository state and fork ownership in `repository.ts`, and JSON/lockfile reconciliation in `data-files.ts`. Both synchronization and development patch generation use the same source generator.
-- `src/i18n/locales/` belongs to upstream. Sync adopts catalogs from the exact release tag and uses English for missing or invalid translations. Keep fork text in `src/i18n/forkTranslations.ts` or feature-owned translation modules registered through it; update `en`, `zh-CN`, `zh-TW`, and `ru`, including accessible labels. Keep the upstream language list unchanged and register fork overlays separately; fallback language is `zh-CN`.
+- `src/i18n/locales/`: `en.json`, `zh-CN.json`, `zh-TW.json`, `ru.json`, `vi.json`, and `ko.json`, registered in `src/i18n/index.ts`; fallback language is `zh-CN`. Update all six files when adding or changing translation keys, including accessible labels.
 
 ## Build, Test, and Development Commands
 
@@ -55,16 +50,11 @@ Use 2-space indentation, semicolons, single quotes, ES5 trailing commas, and 100
 
 Component files use PascalCase, hooks use `useName`, and API modules use domain names such as `oauth.ts`. SCSS Modules sit beside their page or component as `Name.module.scss`. Vite automatically injects `src/styles/variables.scss` into SCSS; new modules do not need to import it again. Reuse shared components from `src/components/ui/` and existing theme tokens before adding new primitives or hard-coded colors.
 
-Keep user-facing text in i18n. Preserve keyboard interaction, accessible names, focus behavior, and reduced-motion handling when modifying interactive UI.
-
-## Reasoning & Review
-
-- Assess correctness and future compatibility from mechanisms, invariants, ownership boundaries, and external contracts. State the assumptions and failure boundaries behind each conclusion; for upstream synchronization, include path collisions and semantic changes to shared APIs that can preserve types.
-- Passing tests is evidence for the exercised versions and inputs, not proof of general correctness or future upstream compatibility. Do not substitute repeated runs or pass counts for reasoning. Use tests to challenge that reasoning, and distinguish conditional guarantees from observed results.
+Keep user-facing text in i18n. Preserve keyboard interaction, accessible names, focus behavior, and reduced-motion handling when modifying interactive UI. For motion, reuse the timing tokens in `src/styles/themes.scss` (`--ease-out-strong`, `--dur-press`, `--dur-hover`) and the helpers in `src/hooks/motion.ts` (`prefersReducedMotion`, `useRevealOnScroll`, `useRevealGroup`, `useCountUp`) instead of ad hoc durations and easings.
 
 ## Testing & Verification
 
-Tests are centralized under `tests/` as `*.test.ts` and use `bun:test`. Existing suites cover pure logic, React server-side static rendering via `renderToStaticMarkup`, and source/contract checks. There is no configured browser DOM test harness; static markup tests do not verify browser interactions. Prefer extracting testable logic and following nearby test patterns rather than introducing a new framework by default.
+Tests are centralized under `tests/` as `*.test.ts` and use `bun:test`; shared fixtures live in `tests/fixtures/` and helpers in `tests/helpers/`. Existing suites cover pure logic, React server-side static rendering via `renderToStaticMarkup`, and source/contract checks. There is no configured browser DOM test harness; static markup tests do not verify browser interactions. Prefer extracting testable logic and following nearby test patterns rather than introducing a new framework by default.
 
 For code changes, add or update relevant regression tests, run focused tests while iterating, and run `bun run verify` before handoff. For UI changes, also verify the affected route in a browser and include screenshots or notes. Report commands actually run, failures, and anything not verified; if a backend or browser is unavailable, state the limitation explicitly. Documentation-only changes can be checked with diff/content validation instead of a full build.
 
