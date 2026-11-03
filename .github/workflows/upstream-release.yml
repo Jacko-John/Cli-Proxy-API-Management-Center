@@ -1,0 +1,353 @@
+name: Upstream Release Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      upstream_tag:
+        type: string
+        default: ''
+      force_release:
+        type: boolean
+        default: false
+      allow_validation_override:
+        type: boolean
+        default: false
+
+# Both entry points share this lock, including the time spent waiting for approval.
+concurrency:
+  group: sync-upstream-release-main
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  UPSTREAM_REPOSITORY: router-for-me/Cli-Proxy-API-Management-Center
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      ready: ${{ steps.candidate.outcome == 'success' && steps.upload.outcome == 'success' }}
+      requires_approval: ${{ steps.candidate.outputs.requires_approval }}
+      base_commit: ${{ steps.base.outputs.commit }}
+      source_commit: ${{ steps.candidate.outputs.source_commit }}
+      patch_tag: ${{ steps.release.outputs.patch_tag }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - name: Require main and an explicit manual entry point for overrides
+        env:
+          WORKFLOW_REF: ${{ github.ref }}
+          WORKFLOW_EVENT: ${{ github.event_name }}
+          ALLOW_VALIDATION_OVERRIDE: ${{ inputs.allow_validation_override }}
+        run: |
+          test "${WORKFLOW_REF}" = refs/heads/main
+          if [ "${ALLOW_VALIDATION_OVERRIDE}" = true ]; then
+            test "${WORKFLOW_EVENT}" = workflow_dispatch
+          fi
+
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: main
+
+      - name: Record base and configure git identity
+        id: base
+        run: |
+          echo "commit=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          mkdir -p "${RUNNER_TEMP}/upstream-sync"
+
+      - name: Resolve upstream stable release
+        id: upstream
+        env:
+          REQUESTED_TAG: ${{ inputs.upstream_tag }}
+        run: |
+          set -euo pipefail
+          if [ -n "${REQUESTED_TAG}" ]; then
+            release_json="$(gh api "repos/${UPSTREAM_REPOSITORY}/releases/tags/${REQUESTED_TAG}")"
+          else
+            release_json="$(gh api "repos/${UPSTREAM_REPOSITORY}/releases/latest")"
+          fi
+          tag="$(jq -r '.tag_name // empty' <<<"${release_json}")"
+          release_url="$(jq -r '.html_url // empty' <<<"${release_json}")"
+          draft="$(jq -r '.draft' <<<"${release_json}")"
+          prerelease="$(jq -r '.prerelease' <<<"${release_json}")"
+          if [ -z "${tag}" ] || [ "${draft}" != false ] || [ "${prerelease}" != false ]; then
+            echo "Only published, non-prerelease upstream releases are supported."
+            exit 1
+          fi
+          git check-ref-format "refs/tags/${tag}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "url=${release_url}" >> "${GITHUB_OUTPUT}"
+
+      - name: Resolve patch release
+        id: release
+        env:
+          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+          FORCE_RELEASE: ${{ inputs.force_release }}
+        run: |
+          set -euo pipefail
+          prefix="${UPSTREAM_TAG}-patch."
+          highest=0
+          release_tags="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq '.[].tag_name')"
+          while IFS= read -r release_tag; do
+            case "${release_tag}" in
+              "${prefix}"*)
+                number="${release_tag#"${prefix}"}"
+                if [[ "${number}" =~ ^[0-9]+$ ]] && (( 10#${number} > highest )); then
+                  highest=$((10#${number}))
+                fi
+                ;;
+            esac
+          done <<<"${release_tags}"
+          if (( highest > 0 )) && [ "${FORCE_RELEASE}" != true ]; then
+            echo "skip=true" >> "${GITHUB_OUTPUT}"
+            echo "patch_tag=${UPSTREAM_TAG}-patch.${highest}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "skip=false" >> "${GITHUB_OUTPUT}"
+            echo "patch_tag=${UPSTREAM_TAG}-patch.$((highest + 1))" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Add upstream remote and fetch release tag
+        id: fetch
+        if: steps.release.outputs.skip == 'false'
+        env:
+          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+        run: |
+          git remote add upstream "https://github.com/${UPSTREAM_REPOSITORY}.git"
+          git fetch --no-tags upstream "refs/tags/${UPSTREAM_TAG}:refs/tags/${UPSTREAM_TAG}"
+          echo "commit=$(git rev-parse "refs/tags/${UPSTREAM_TAG}^{commit}")" >> "${GITHUB_OUTPUT}"
+
+      - name: Setup Node.js
+        if: steps.release.outputs.skip == 'false'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Setup Bun for fork tooling
+        if: steps.release.outputs.skip == 'false'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Install fork patch tooling
+        if: steps.release.outputs.skip == 'false'
+        run: bun install --frozen-lockfile
+
+      - name: Prepare upstream source and replay fork patches
+        if: steps.release.outputs.skip == 'false'
+        env:
+          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+        run: |
+          set -euo pipefail
+          bun scripts/sync-upstream.ts "${UPSTREAM_TAG}" 2>&1 | tee "${RUNNER_TEMP}/upstream-sync/prepare.log"
+
+      - name: Setup Bun for upstream release
+        if: steps.release.outputs.skip == 'false'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Resolve and install merged dependencies
+        if: steps.release.outputs.skip == 'false'
+        run: |
+          bun install --lockfile-only
+          bun install --frozen-lockfile
+          git add -- bun.lock
+
+      - name: Commit candidate source
+        id: source
+        if: steps.release.outputs.skip == 'false'
+        env:
+          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+        run: |
+          if git rev-parse -q --verify MERGE_HEAD >/dev/null || ! git diff --cached --quiet; then
+            git commit -m "Merge upstream release ${UPSTREAM_TAG}"
+          fi
+          echo "commit=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+
+      - name: Run tests
+        id: tests
+        if: steps.release.outputs.skip == 'false'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          bun run test 2>&1 | tee "${RUNNER_TEMP}/upstream-sync/tests.log"
+
+      - name: Run lint
+        id: lint
+        if: steps.release.outputs.skip == 'false'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          bun run lint 2>&1 | tee "${RUNNER_TEMP}/upstream-sync/lint.log"
+
+      - name: Type check and build release
+        id: build
+        if: steps.release.outputs.skip == 'false'
+        env:
+          VERSION: ${{ steps.release.outputs.patch_tag }}
+        run: |
+          set -euo pipefail
+          bun run build 2>&1 | tee "${RUNNER_TEMP}/upstream-sync/build.log"
+
+      - name: Enforce validation policy and package candidate
+        id: candidate
+        if: steps.release.outputs.skip == 'false'
+        env:
+          BASE_COMMIT: ${{ steps.base.outputs.commit }}
+          SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
+          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+          UPSTREAM_COMMIT: ${{ steps.fetch.outputs.commit }}
+          UPSTREAM_URL: ${{ steps.upstream.outputs.url }}
+          PATCH_TAG: ${{ steps.release.outputs.patch_tag }}
+          TEST_OUTCOME: ${{ steps.tests.outcome }}
+          LINT_OUTCOME: ${{ steps.lint.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          ALLOW_VALIDATION_OVERRIDE: ${{ inputs.allow_validation_override }}
+          CANDIDATE_DIR: ${{ runner.temp }}/release-candidate
+        run: |
+          mkdir -p "${CANDIDATE_DIR}"
+          cp "${RUNNER_TEMP}/upstream-sync/"*.log "${CANDIDATE_DIR}/"
+          bun scripts/upstream/release-candidate.ts pack
+          cat "${CANDIDATE_DIR}/review.md" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload release candidate
+        id: upload
+        if: steps.release.outputs.skip == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-candidate
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Report existing patched release
+        if: steps.release.outputs.skip == 'true'
+        env:
+          PATCH_TAG: ${{ steps.release.outputs.patch_tag }}
+        run: echo "${PATCH_TAG} already exists; nothing to publish."
+
+      - name: Capture failed synchronization
+        if: failure()
+        env:
+          BASE_COMMIT: ${{ steps.base.outputs.commit }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/upstream-sync"
+          git status --short > "${RUNNER_TEMP}/upstream-sync/status.txt"
+          git diff --binary "${BASE_COMMIT:-HEAD}" > "${RUNNER_TEMP}/upstream-sync/candidate.patch"
+          git diff --name-only --diff-filter=U > "${RUNNER_TEMP}/upstream-sync/conflicts.txt"
+
+      - name: Upload synchronization diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-sync-diagnostics-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/upstream-sync
+          retention-days: 7
+
+  approval:
+    needs: prepare
+    if: >-
+      needs.prepare.outputs.ready == 'true' &&
+      needs.prepare.outputs.requires_approval == 'true' &&
+      inputs.allow_validation_override && github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    environment:
+      name: manual-release-override
+      url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Checkout candidate tooling
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.base_commit }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Download exact release candidate
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.artifact_id }}
+          path: ${{ runner.temp }}/release-candidate
+          merge-multiple: true
+
+      - name: Verify human approval for this candidate
+        env:
+          BASE_COMMIT: ${{ needs.prepare.outputs.base_commit }}
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
+          PATCH_TAG: ${{ needs.prepare.outputs.patch_tag }}
+          CANDIDATE_DIR: ${{ runner.temp }}/release-candidate
+        run: bun scripts/upstream/release-candidate.ts approval
+
+  publish:
+    needs: [prepare, approval]
+    if: >-
+      !cancelled() && needs.prepare.result == 'success' &&
+      needs.prepare.outputs.ready == 'true' &&
+      (needs.prepare.outputs.requires_approval == 'false' ||
+       (needs.prepare.outputs.requires_approval == 'true' &&
+        inputs.allow_validation_override && needs.approval.result == 'success'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout candidate base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.base_commit }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Download exact release candidate
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.artifact_id }}
+          path: ${{ runner.temp }}/release-candidate
+          merge-multiple: true
+
+      - name: Verify candidate, approval and unchanged main
+        env:
+          BASE_COMMIT: ${{ needs.prepare.outputs.base_commit }}
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
+          PATCH_TAG: ${{ needs.prepare.outputs.patch_tag }}
+          CANDIDATE_DIR: ${{ runner.temp }}/release-candidate
+        run: bun scripts/upstream/release-candidate.ts verify
+
+      - name: Push source and publish prepared asset
+        env:
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
+          PATCH_TAG: ${{ needs.prepare.outputs.patch_tag }}
+          CANDIDATE_DIR: ${{ runner.temp }}/release-candidate
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/${PATCH_TAG}"; then
+            echo "Release tag already exists; start a new workflow run."
+            exit 1
+          else
+            status=$?
+            if [ "${status}" != 2 ]; then exit "${status}"; fi
+          fi
+          git push origin "${SOURCE_COMMIT}:refs/heads/main"
+          gh release create "${PATCH_TAG}" "${CANDIDATE_DIR}/management.html" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${SOURCE_COMMIT}" \
+            --title "${PATCH_TAG}" \
+            --notes-file "${CANDIDATE_DIR}/release-notes.md"

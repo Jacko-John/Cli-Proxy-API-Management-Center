@@ -61,8 +61,20 @@
 - 插件新增文件在 `scripts/upstream/repository.ts` 中显式登记；同步前检查上游是否占用这些路径，并拒绝未登记的 fork 改动。
 - 路由、侧栏、翻译注册和 API/类型导出通过 `scripts/upstream/source-patches.ts` 的五处接入补丁生成；上游接入结构发生变化时停止同步并报告。
 - `package.json` 仅增加插件图表所需依赖；上游已有同名依赖时采用上游版本。依赖锁文件由目标版本的 Bun 解析。
-- 同步工作流分别按同步前、同步后的 `package.json.packageManager` 安装 Bun，验证成功后才提交、推送和发布单文件 `management.html`。
+- 同步工作流分别按同步前、同步后的 `package.json.packageManager` 安装 Bun，验证完成后才推送源码和发布单文件 `management.html`。
 - 默认每 6 小时检查正式 Release，发布版本为 `<上游Tag>-patch.N`；手动运行可指定正式 Tag，拒绝回退到当前基线之前。
+
+### 手动审批发布
+
+Actions 中的 **Manual Upstream Release** 与自动同步共用同一套同步、依赖安装、测试、lint 和构建流程。选择 `main` 后运行；`upstream_tag` 留空使用最新正式版，`force_release` 用于为已发布的上游版本创建下一个 patch。
+
+- 测试与 lint 全部通过时，直接发布。
+- 测试或 lint 失败、但类型检查与生产构建成功时，暂停在 `manual-release-override` 环境审批。先查看运行摘要、失败日志和候选产物，再由仓库维护者在 **Review deployments** 中选择 **Approve and deploy**。
+- 同步、依赖安装、类型检查、构建或产物校验失败时停止，不能通过审批跳过。自动同步始终要求所有检查通过。
+
+审批只针对该次运行生成的源码提交和 `management.html`，批准后使用已保存的产物，不重新同步或构建。等待期间 `main` 若有更新，则停止发布，请重新运行。候选产物保存 7 天。需要人工放行的失败版本只能通过新的 **Run workflow** 重新尝试，不支持 **Re-run jobs**，防止复用历史批准；旧产物不能跨运行次数复用。Release 说明会记录检查结果及人工放行情况。
+
+环境必须预先配置唯一的 required reviewer，允许该维护者审批自己发起的运行，关闭管理员绕过，并限制到 `main` 分支；仅创建同名环境不构成审批保护。GitHub 的受保护 job 要求当前审批，工作流还会在打包和发布时检查配置与审批记录。迁移仓库或维护者时，同时更新环境和 `scripts/upstream/release-candidate.ts` 中的维护者 ID。
 
 ## 开发约定
 

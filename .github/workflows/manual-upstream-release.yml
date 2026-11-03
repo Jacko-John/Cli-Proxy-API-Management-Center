@@ -1,0 +1,26 @@
+name: Manual Upstream Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: '上游正式 Release Tag；留空使用最新版本'
+        required: false
+        type: string
+      force_release:
+        description: '已发布时仍创建下一个 patch 版本'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  manual-upstream-release:
+    uses: ./.github/workflows/upstream-release.yml
+    with:
+      upstream_tag: ${{ inputs.upstream_tag || '' }}
+      force_release: ${{ inputs.force_release || false }}
+      allow_validation_override: true

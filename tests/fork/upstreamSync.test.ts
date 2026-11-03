@@ -86,6 +86,9 @@ const sources: Record<string, string> = {
 // Independent plugin examples cover complete feature roots and individually owned leaf files.
 const pluginSources: Record<string, string> = {
   'FORK.md': '# Plugin management extensions\n',
+  '.github/workflows/sync-upstream.yml': 'name: Automatic plugin release\n',
+  '.github/workflows/manual-upstream-release.yml': 'name: Approved plugin release\n',
+  '.github/workflows/upstream-release.yml': 'name: Shared plugin release pipeline\n',
   'src/fork/sentinel.ts': 'export const feature = "preserve me";\n',
   'src/features/notifications/UsageNotificationsPage.tsx': 'export const page = "notifications";\n',
   'src/features/notifications/NotificationSMTPSettings.tsx':
@@ -609,6 +612,8 @@ describe('plugin source synchronization', () => {
 
   for (const path of [
     'src/fork/sentinel.ts',
+    '.github/workflows/manual-upstream-release.yml',
+    '.github/workflows/upstream-release.yml',
     'src/fork/newUpstreamModule.ts',
     'src/features/notifications/UsageNotificationsPage.tsx',
     'src/features/notifications/newUpstreamModule.ts',

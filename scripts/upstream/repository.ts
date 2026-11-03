@@ -10,6 +10,8 @@ const statePath = '.github/upstream-sync.json';
 export const forkOwnedPaths = [
   statePath,
   '.github/workflows/sync-upstream.yml',
+  '.github/workflows/manual-upstream-release.yml',
+  '.github/workflows/upstream-release.yml',
   'FORK.md',
   'scripts/upstream',
   'scripts/sync-upstream.ts',
