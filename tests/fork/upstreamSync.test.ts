@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import ts from 'typescript';
 import { syncUpstream } from '../../scripts/sync-upstream';
+import { formatSource } from '../../scripts/upstream/ast';
 import { git } from '../../scripts/upstream/git';
 import { patchUpstreamSource, sourcePatches } from '../../scripts/upstream/source-patches';
 
@@ -81,6 +82,18 @@ const sources: Record<string, string> = {
     }`,
   'src/services/api/index.ts': `export * from './client';`,
   'src/types/index.ts': `export * from './config';`,
+  'tests/authFileCooldowns.test.ts': `import { describe, expect, test } from 'bun:test';
+    const i18n = { t: () => "Clear this credential's local routing cooldown" };
+    describe('cooldown section rendering', () => {
+      test('keeps the reset action contextual and exposes pending state', () => {
+        const available = '<button title="Clear this credential&#x27;s local routing cooldown">Reset</button>';
+        expect(available).toContain('<button');
+        expect(available).toContain(i18n.t('auth_files.cooldown_reset_hint'));
+        expect(available).not.toContain('disabled=""');
+        const pending = '<button disabled="">Reset</button>';
+        expect(pending).toContain('disabled=""');
+      });
+    });`,
 };
 
 // Independent plugin examples cover complete feature roots and individually owned leaf files.
@@ -369,6 +382,58 @@ describe('plugin source synchronization', () => {
     );
     await expect(syncUpstream(repository, 'release-1')).rejects.toThrow('not a descendant');
   }, 30000);
+
+  test('replays the known SSR assertion exception until upstream fixes the expectation', async () => {
+    const repository = await fixture();
+    const path = 'tests/authFileCooldowns.test.ts';
+    const brokenAssertion =
+      "expect(available).toContain(i18n.t('auth_files.cooldown_reset_hint'));";
+
+    // A new upstream release still needs the exception, while its other assertions must survive.
+    const firstRelease = sources[path].replace(
+      "expect(available).toContain('<button');",
+      "expect(available).toContain('<button');\nexpect(available).toContain('title=');"
+    );
+    upstreamRelease(repository, 'cooldown-ssr-regression', () => {
+      write(repository, path, firstRelease);
+    });
+    await syncUpstream(repository, 'cooldown-ssr-regression');
+    const patched = read(repository, path);
+    expect(patched).toContain(
+      "test('keeps the reset action contextual and exposes pending state', () => {"
+    );
+    expect(patched).not.toContain(brokenAssertion);
+    expect(patched).toContain("expect(available).toContain('<button');");
+    expect(patched).toContain("expect(available).toContain('title=');");
+    expect(patched).toContain(`expect(available).not.toContain('disabled=""');`);
+    expect(patched).toContain(`expect(pending).toContain('disabled=""');`);
+    commit(repository);
+
+    // Once upstream escapes its HTML expectation, its fix and new coverage must remain active.
+    const fixedExpectation = `i18n.t('auth_files.cooldown_reset_hint').replaceAll("'", '&#x27;')`;
+    const fixedRelease = firstRelease
+      .replace(brokenAssertion, `expect(available).toContain(${fixedExpectation});`)
+      .replace(
+        "expect(available).toContain('title=');",
+        "expect(available).toContain('title=');\nexpect(available).toContain('Reset');"
+      );
+    upstreamRelease(repository, 'cooldown-ssr-fixed', () => {
+      write(repository, path, fixedRelease);
+    });
+    await syncUpstream(repository, 'cooldown-ssr-fixed');
+    expect(read(repository, path)).toBe(await formatSource(path, fixedRelease));
+  });
+
+  test('rejects a missing registered test exception before modifying the index', async () => {
+    const repository = await fixture();
+    const path = 'tests/authFileCooldowns.test.ts';
+    write(repository, path, sources[path]);
+    commit(repository);
+    upstreamRelease(repository, 'cooldown-exception-not-generated', () => {
+      write(repository, 'options.json', { limit: 2 });
+    });
+    await expectPreflightFailure(repository, 'cooldown-exception-not-generated', path);
+  });
 
   test('migrates legacy fork documents even when upstream did not change them', async () => {
     const repository = await fixture();

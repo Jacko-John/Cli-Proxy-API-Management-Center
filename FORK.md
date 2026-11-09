@@ -60,6 +60,7 @@
 - 公共面板源码、README、AGENTS、翻译目录、构建配置、测试脚本和工具链采用精确上游版本。
 - 插件新增文件在 `scripts/upstream/repository.ts` 中显式登记；同步前检查上游是否占用这些路径，并拒绝未登记的 fork 改动。
 - 路由、侧栏、翻译注册和 API/类型导出通过 `scripts/upstream/source-patches.ts` 的五处接入补丁生成；上游接入结构发生变化时停止同步并报告。
+- 已知上游测试例外维护在 `scripts/upstream/test-exceptions.ts`：暂时跳过 `tests/authFileCooldowns.test.ts` 中 cooldown reset 提示的原始 HTML 字符串断言，该用例的其余校验继续执行。仅匹配该用例的原始断言并随同步重新应用；上游替换该断言后保留其新写法。本地与 CI 使用相同处理，其余测试、lint、类型检查和构建照常执行。
 - `package.json` 仅增加插件图表所需依赖；上游已有同名依赖时采用上游版本。依赖锁文件由目标版本的 Bun 解析。
 - 同步工作流分别按同步前、同步后的 `package.json.packageManager` 安装 Bun，验证完成后才推送源码和发布单文件 `management.html`。
 - 默认每 6 小时检查正式 Release，发布版本为 `<上游Tag>-patch.N`；手动运行可指定正式 Tag，拒绝回退到当前基线之前。

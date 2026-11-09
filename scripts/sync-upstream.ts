@@ -1,4 +1,4 @@
-/** Adopt an exact upstream release and replay the registered plugin extension without publishing. */
+/** Adopt an upstream release and replay registered plugin and test patches without publishing. */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { generatePackageJson } from './upstream/data-files';
@@ -55,7 +55,7 @@ export async function syncUpstream(repository: string, upstreamRef: string): Pro
   // A verified snapshot already contains Bun's resolved plugin graph; do not discard its lockfile.
   if (upstream === baseline && state.strategy === 'upstream-snapshot') {
     console.log(
-      `Already prepared ${upstreamRef}: plugin integrations and dependency policy validated`
+      `Already prepared ${upstreamRef}: registered patches and dependency policy validated`
     );
     return;
   }
@@ -73,7 +73,7 @@ export async function syncUpstream(repository: string, upstreamRef: string): Pro
   git(repository, ['read-tree', '--reset', '-u', upstream]);
   restoreForkPaths(repository, before);
 
-  // Only declared plugin integrations and dependencies modify the upstream-owned snapshot.
+  // Only registered integrations, the known test exception and dependencies modify the snapshot.
   const files = new Map([...candidates, ['package.json', packageJson]]);
   for (const [path, source] of files) {
     mkdirSync(dirname(resolve(repository, path)), { recursive: true });
@@ -87,7 +87,7 @@ export async function syncUpstream(repository: string, upstreamRef: string): Pro
     strategy: 'upstream-snapshot',
   });
   console.log(
-    `Prepared ${upstreamRef}: adopted upstream snapshot and replayed ${candidates.size} plugin integrations; Bun resolution and verification required before commit`
+    `Prepared ${upstreamRef}: adopted upstream snapshot and replayed ${candidates.size} registered patches; Bun resolution and verification required before commit`
   );
 }
 

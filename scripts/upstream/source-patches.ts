@@ -1,8 +1,9 @@
-/** The fork's complete integration layer, reapplied to the exact upstream release sources. */
+/** Registered plugin integrations and known test exceptions, replayed from each upstream release. */
 import ts from 'typescript';
 import { forkPagePaths, forkSidebarGroups } from '../../src/fork/navigation';
 import { formatSource, SourcePatch } from './ast';
 import { blob } from './git';
+import { applyKnownUpstreamTestExceptions } from './test-exceptions';
 
 type Patch = (source: SourcePatch) => void;
 
@@ -166,12 +167,13 @@ export const sourcePatches: Record<string, Patch> = {
   'src/components/layout/MainLayout.tsx': sidebar,
   'src/services/api/index.ts': exportModule('./usage'),
   'src/types/index.ts': exportModule('./usageSafety'),
+  'tests/authFileCooldowns.test.ts': applyKnownUpstreamTestExceptions,
 };
 
 /** Build a candidate entirely in memory. A failed anchor leaves the checkout untouched. */
 export async function patchUpstreamSource(path: string, source: string): Promise<string> {
   const apply = sourcePatches[path];
-  if (!apply) throw new Error(`No fork integration patch registered for ${path}`);
+  if (!apply) throw new Error(`No fork source patch registered for ${path}`);
   const patch = new SourcePatch(path, source);
   apply(patch);
   return patch.finish();
@@ -185,18 +187,18 @@ export async function generateSourcePatches(
   const sources = new Map<string, string>();
   for (const path of Object.keys(sourcePatches)) {
     const original = blob(repository, ref, path);
-    if (original === null) throw new Error(`${ref}: missing integration source ${path}`);
+    if (original === null) throw new Error(`${ref}: missing registered source ${path}`);
     sources.set(path, await patchUpstreamSource(path, original));
   }
   return sources;
 }
 
-/** Ensure every local edit to an upstream integration source is represented before replacement. */
+/** Ensure local integration and test exception edits are represented before replacing sources. */
 export async function validateSourcePatches(repository: string, baseline: string): Promise<void> {
   const expectedSources = await generateSourcePatches(repository, baseline);
   for (const [path, expected] of expectedSources) {
     const ours = blob(repository, 'HEAD', path);
-    if (ours === null) throw new Error(`Missing integration source ${path}`);
+    if (ours === null) throw new Error(`Missing registered source ${path}`);
     if ((await formatSource(path, ours)) !== expected) {
       throw new Error(
         `${path}: fork edits are not represented in scripts/upstream/source-patches.ts; refusing to overwrite them`

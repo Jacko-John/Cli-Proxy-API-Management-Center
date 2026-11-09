@@ -1,4 +1,4 @@
-/** Regenerate the fork integration files from the recorded upstream baseline during development. */
+/** Regenerate registered integrations and test exceptions from the upstream baseline. */
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { readUpstreamState } from './upstream/repository';
