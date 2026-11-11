@@ -1,5 +1,5 @@
 {
-  "upstreamTag": "v1.27.3",
-  "upstreamCommit": "953fb2444350c6c36052dda46cac0abce6b23ea6",
+  "upstreamTag": "v1.27.4",
+  "upstreamCommit": "d06a110594e8a3949684834d990eeb9c8e888499",
   "strategy": "upstream-snapshot"
 }
